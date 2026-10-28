@@ -184,13 +184,19 @@ def test_A10_validation_boundaries(actors):
     a, _ = actors
     sid = a.create().json()['recording_session_id']
     bad = [{'role':'system'}, {'occurred_at':'2026-10-28T00:00:00'}, {'occurred_at':123},
-           {'occurred_at':'2026-10-28T00:00:00+00:60'}, {'content':'\ud800'},
+           {'occurred_at':'2026-10-28T00:00:00+00:60'},
            {'sequence_no':True}, {'sequence_no':1.0}, {'sequence_no':0}, {'sequence_no':2147483648},
            {'content':'a'*8001}, {'content':' \n\t'}, {'content':123}, {'user_id':1},
            {'playback_status':'unknown'}, {'external_message_id':'bad id'}, {'turn_id':''},
            {'role':'assistant','playback_status':'not_applicable'}]
     for fields in bad:
         error(a.send(sid, **fields), 422, 'validation_error')
+    # Send an ASCII JSON escape so the HTTP client cannot reject it first.
+    invalid_unicode = a.client.post(f'{ROOT}/{sid}/messages',
+        content=json.dumps(message_body(content='\ud800')),
+        headers={'Authorization':'Bearer '+a.token,'Content-Type':'application/json'})
+    error(invalid_unicode,422,'validation_error')
+    a.trace.append({'escaped_invalid_unicode_status':invalid_unicode.status_code,'response':invalid_unicode.json()})
     for field in message_body():
         if field == 'turn_id':
             continue
@@ -212,7 +218,7 @@ def test_A11_transaction_fault_and_busy(actors, trace):
         raise OperationalError('commit', {}, sqlite3.OperationalError('injected failure'))
     event.listen(engine, 'commit', fail_commit)
     try:
-        error(a.send(sid), 503, 'storage_unavailable')
+        error(a.send(sid), 503, 'storage_busy')
     finally:
         event.remove(engine, 'commit', fail_commit)
     assert a.detail(sid).json()['received_record_count'] == 0

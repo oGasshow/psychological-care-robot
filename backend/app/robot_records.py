@@ -81,7 +81,7 @@ MESSAGES = {
     'sequence_conflict': 'Sequence already used', 'close_conflict': 'Close metadata conflicts',
     'session_closed': 'Sequence exceeds close boundary', 'session_deleted': 'Session deleted',
     'validation_error': 'Invalid request fields', 'invalid_cursor': 'Invalid or mismatched cursor',
-    'storage_busy': 'Storage busy; retry later', 'storage_unavailable': 'Storage unavailable; retry later',
+    'storage_busy': 'Storage temporarily unavailable; retry later',
 }
 
 def error_response(status, code, details=None):
@@ -109,8 +109,7 @@ def install_handlers(app):
     @app.exception_handler(SQLAlchemyError)
     async def storage_error(request, exc):
         if request.url.path.startswith(PREFIX):
-            return error_response(503, 'storage_busy' if isinstance(exc, OperationalError) and
-                                  ('locked' in str(exc.orig) or 'busy' in str(exc.orig)) else 'storage_unavailable')
+            return error_response(503, 'storage_busy')
         return JSONResponse(status_code=500, content={'detail': 'Storage error'})
 
 bearer = HTTPBearer(auto_error=False)

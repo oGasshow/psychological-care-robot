@@ -66,7 +66,7 @@ OpenAPI 中路径变量名为 `sid`，对应上述 `recording_session_id`；URL�
 
 关闭不代表传齐，closed且计数等于最终上界才完整。文本 `completed` 不代表播放完成，`canceled` 不是完整发言；`unknown` 不会自动升级。没有 PATCH。下游应按状态处理，不能把助手生成文字等同于老人听到的全部文字。
 
-错误结构为 `error.code/message/retryable`。常规验证只返回字段位置/类型，不回显心理正文。除契约列举错误外，非锁忙的存储提交故障补充 `503 storage_unavailable`，供客户端重试；这是一项可复核的错误码补充，未放宽原验收条件。
+错误结构为 `error.code/message/retryable`。常规验证只返回字段位置/类型，不回显心理正文。数据库锁忙或事务提交失败均使用契约内的 `503 storage_busy`，未提交成功不会返回成功ACK；客户端可用同一编号重试。
 
 ## 5. 文本客户端接入
 
