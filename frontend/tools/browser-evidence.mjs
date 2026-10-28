@@ -121,7 +121,7 @@ try{
   await page.emulateMedia({media:'print'});
   assert(!await page.getByRole('button',{name:'重新核验来源并打印 / 保存 PDF'}).isVisible(),'Print controls must be hidden');
   assert(await page.locator('.care-print-stamp').isVisible(),'Repeated print demo stamp');
-  await page.pdf({path:path.join(output,'模拟陪伴报告.pdf'),format:'A4',printBackground:true,preferCSSPageSize:true,displayHeaderFooter:true,headerTemplate:'<span></span>',footerTemplate:'<div style="font-family:Microsoft YaHei,sans-serif;font-size:9px;width:100%;text-align:center;color:#665321">模拟数据演示 · 辅助陪伴 · 非诊断用途　<span class="pageNumber"></span> / <span class="totalPages"></span></div>',margin:{top:'18mm',right:'16mm',bottom:'20mm',left:'16mm'}});
+  await page.pdf({path:path.join(output,'模拟陪伴报告.pdf'),format:'A4',printBackground:true,preferCSSPageSize:true,displayHeaderFooter:false});
   record('browser_print_to_pdf',{file:'模拟陪伴报告.pdf',source_refreshed:true,controls_hidden:true,repeated_demo_footer:true});
   assert(evidence.console_error_count===0,'Browser page errors present');
   assert(evidence.external_request_count===0,'Unexpected external resource loaded');

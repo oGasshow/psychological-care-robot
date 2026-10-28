@@ -61,17 +61,27 @@
 .care-root .care-empty { color:var(--muted); padding:20px 0; }
 @media(max-width:700px) { .care-grid { grid-template-columns:1fr; } .care-main { padding:25px 16px; } .care-title { font-size:25px; } .care-card,.care-report { padding:18px; } .care-nav a { padding:12px; } .care-session { align-items:flex-start; flex-direction:column; } .care-top { align-items:flex-start; } }
 @page { size:A4; margin:18mm 16mm 20mm; }
+@page care-summary {
+  @bottom-center { content:"辅助陪伴记录摘要 · 非诊断用途　" counter(page) " / " counter(pages); font-family:"Microsoft YaHei",sans-serif; font-size:9pt; color:#7a5a1d; }
+}
+@page care-summary-demo {
+  @bottom-center { content:"模拟数据演示 · 辅助陪伴 · 非诊断用途　" counter(page) " / " counter(pages); font-family:"Microsoft YaHei",sans-serif; font-size:9pt; color:#7a5a1d; }
+}
 @media print {
   html,body,.care-root { background:white !important; color:#182d28 !important; font-size:10pt; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
   .care-top,.care-nav,.care-actions,.care-no-print,.care-footer,button,input,textarea,select { display:none !important; }
   .care-main { max-width:none; padding:0; margin:0; }
-  .care-report { padding:0; border:0; }
+  .care-report { padding:0; border:0; page:care-summary; }
+  .care-report[data-is-test="true"] { page:care-summary-demo; }
+  .care-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
   .care-report h1 { font-size:22pt; }
   .care-report h2 { break-after:avoid; font-size:13pt; }
+  .care-report h3 { break-after:avoid; }
   .care-report section { margin:16px 0; }
   .care-report tr,.care-report .care-notice,.care-stat { break-inside:avoid; }
+  .care-report article.care-card,.care-report .care-timeline li { break-inside:avoid; }
   .care-report thead { display:table-header-group; }
-  .care-print-stamp { display:block; position:fixed; bottom:-13mm; right:0; left:0; color:#7a5a1d; font-size:9pt; border-top:1px solid #ddd; padding-top:3mm; background:white; }
+  .care-print-stamp { display:block; color:#7a5a1d; font-size:9pt; margin-bottom:3mm; }
   .care-report p,.care-report li { orphans:3; widows:3; }
   .care-root a { color:inherit; text-decoration:none; }
   .care-badge { border:1px solid #ddd; }

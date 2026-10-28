@@ -56,7 +56,7 @@ export default function ReportPage({printMode=false}:{printMode?:boolean}) {
 
 function ReportBody({dto}:{dto:Data}) {
   const isTest=Boolean(dto.is_test);
-  return <article className="care-report" data-testid="report-dto" data-generated-at={dto.generated_at}>
+  return <article className="care-report" data-testid="report-dto" data-is-test={isTest?'true':'false'} data-generated-at={dto.generated_at}>
     <div className="care-print-stamp">{isTest?'模拟数据演示 · ':''}辅助陪伴记录摘要 · 非诊断用途</div>
     <div className="care-eyebrow">XINYI / 辅助陪伴记录摘要</div><h1 className="care-title">陪伴与量表报告</h1>{isTest&&<p className="care-notice care-warning"><strong>模拟数据演示</strong> · 所有内容来自专用虚构测试数据，不是真实评估。</p>}
     <p><strong>匿名展示编号：{dto.anonymous_id || dto.anonymous_code}</strong></p><p className="care-meta">报告生成：{date(dto.generated_at)}<br/>数据截至：{date(dto.data_as_of)}<br/>报告结构版本：{dto.schema_version || '1.0'}</p>
