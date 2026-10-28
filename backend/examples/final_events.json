@@ -1,0 +1,7 @@
+[
+  {"type":"session","body":{"source":"doubao_realtime","device_id":"virtual_device_01","external_session_id":"fictional_demo_001","started_at":"2026-10-28T10:00:00+08:00","is_test":true}},
+  {"type":"message","external_session_id":"fictional_demo_001","body":{"external_message_id":"fictional_user_001","turn_id":"fictional_turn_001","role":"user","content":"虚构测试：今天去公园散步了。🌳","occurred_at":"2026-10-28T10:00:05+08:00","text_status":"completed","playback_status":"not_applicable"}},
+  {"type":"message","external_session_id":"fictional_demo_001","body":{"external_message_id":"fictional_assistant_001","turn_id":"fictional_turn_001","role":"assistant","content":"虚构测试：公园里有什么新发现？","occurred_at":"2026-10-28T10:00:08+08:00","text_status":"completed","playback_status":"unknown"}},
+  {"type":"message","external_session_id":"fictional_demo_001","body":{"external_message_id":"fictional_cancel_001","role":"assistant","content":"","occurred_at":"2026-10-28T10:00:10+08:00","text_status":"canceled","playback_status":"not_started"}},
+  {"type":"close","external_session_id":"fictional_demo_001","ended_at":"2026-10-28T10:01:00+08:00"}
+]

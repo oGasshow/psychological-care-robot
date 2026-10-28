@@ -1,0 +1,14 @@
+.tools/
+.python/
+.uv-cache/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.db
+*.db-*
+*.sqlite*
+.env
+runtime/
+test-results/
+.delivery-path

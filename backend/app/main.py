@@ -1,13 +1,9 @@
 """FastAPI 主应用"""
-import os
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .routers import auth, chat, assessment, training, diary, growth, analytics
-
-# 加载环境变量
-load_dotenv()
+from . import robot_records
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
@@ -36,6 +32,8 @@ app.include_router(training.router)
 app.include_router(diary.router)
 app.include_router(growth.router)
 app.include_router(analytics.router)
+app.include_router(robot_records.router)
+robot_records.install_handlers(app)
 
 # 根路径
 @app.get("/")

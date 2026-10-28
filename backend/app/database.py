@@ -1,25 +1,26 @@
-"""数据库配置和连接"""
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-import os
+"""Shared Xinyi database; FKs and bounded busy waits on every connection."""
+from pathlib import Path
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import declarative_base, sessionmaker
+from .config import DATABASE_URL, SQLITE_BUSY_MS
 
-# SQLite 数据库文件路径
-DATABASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-os.makedirs(DATABASE_DIR, exist_ok=True)
-DATABASE_URL = f"sqlite:///{os.path.join(DATABASE_DIR, 'xinyi.db')}"
+url = make_url(DATABASE_URL)
+if url.get_backend_name() != 'sqlite':
+    raise RuntimeError('Module24 v1 supports SQLite only')
+if url.database and url.database != ':memory:':
+    Path(url.database).resolve().parent.mkdir(parents=True, exist_ok=True)
+engine = create_engine(DATABASE_URL, connect_args={
+    'check_same_thread': False, 'timeout': SQLITE_BUSY_MS / 1000,
+}, hide_parameters=True)
 
-# 创建数据库引擎
-engine = create_engine(
-    DATABASE_URL, 
-    connect_args={"check_same_thread": False},  # SQLite 特定配置
-    echo=False  # 设为 True 可以看到 SQL 语句
-)
+@event.listens_for(engine, 'connect')
+def configure_sqlite(connection, _):
+    connection.execute('PRAGMA foreign_keys=ON')
+    connection.execute(f'PRAGMA busy_timeout={SQLITE_BUSY_MS}')
+    connection.execute('PRAGMA secure_delete=ON')
 
-# 创建会话工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# 创建基类
 Base = declarative_base()
 
 # 数据库依赖注入
