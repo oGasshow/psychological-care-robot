@@ -90,6 +90,8 @@ def start(root,cfg,frontend=True):
                     if response.status_code!=200:
                         raise RuntimeError('existing_demo_login_failed')
                     user['token']=response.json()['access_token']
+        # Preserve completed preparation even if a later frontend build fails.
+        (root/'access.json').write_text(json.dumps(cfg,ensure_ascii=False,indent=2),encoding='utf-8')
         worker=launch('worker',[sys.executable,'-m','app.care.worker','--instance-id',root.name],BACKEND)
         if frontend:
             node=shutil_which('node')
