@@ -1,0 +1,835 @@
+{
+  "schema_version": "1.0",
+  "is_test": true,
+  "description": "预先固定的虚构输入；每一批20轮40条，正常批次和独立故障批次不混合统计。",
+  "record_denominator": 40,
+  "turn_denominator": 20,
+  "batches": {
+    "normal": {
+      "session": {
+        "source": "doubao_realtime",
+        "device_id": "virtual_twenty_device",
+        "external_session_id": "twenty_normal_v1",
+        "started_at": "2026-10-28T08:00:00Z",
+        "is_test": true
+      },
+      "messages": [
+        {
+          "external_message_id": "normal_message_01",
+          "turn_id": "normal_turn_01",
+          "sequence_no": 1,
+          "role": "user",
+          "content": "今天早上和邻居散步，我很开心。",
+          "occurred_at": "2026-10-28T08:00:01Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_02",
+          "turn_id": "normal_turn_01",
+          "sequence_no": 2,
+          "role": "assistant",
+          "content": "听起来这次散步让您心情不错，愿意分享沿途看到了什么吗？",
+          "occurred_at": "2026-10-28T08:00:02Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_03",
+          "turn_id": "normal_turn_02",
+          "sequence_no": 3,
+          "role": "user",
+          "content": "现在是上午九点，窗外有阳光。",
+          "occurred_at": "2026-10-28T08:00:03Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_04",
+          "turn_id": "normal_turn_02",
+          "sequence_no": 4,
+          "role": "assistant",
+          "content": "我听到了，今天上午九点，窗外有阳光。",
+          "occurred_at": "2026-10-28T08:00:04Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_05",
+          "turn_id": "normal_turn_03",
+          "sequence_no": 5,
+          "role": "user",
+          "content": "这几天一个人在家，我有些孤独。",
+          "occurred_at": "2026-10-28T08:00:05Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_06",
+          "turn_id": "normal_turn_03",
+          "sequence_no": 6,
+          "role": "assistant",
+          "content": "一个人在家可能让您想找人说说话，我愿意听您慢慢讲。",
+          "occurred_at": "2026-10-28T08:00:06Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_07",
+          "turn_id": "normal_turn_04",
+          "sequence_no": 7,
+          "role": "user",
+          "content": "明天要办一件事情，我有一点担心。",
+          "occurred_at": "2026-10-28T08:00:07Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_08",
+          "turn_id": "normal_turn_04",
+          "sequence_no": 8,
+          "role": "assistant",
+          "content": "我们可以先说说您最担心的部分，也可以一起把事情分成几步。",
+          "occurred_at": "2026-10-28T08:00:08Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_09",
+          "turn_id": "normal_turn_05",
+          "sequence_no": 9,
+          "role": "user",
+          "content": "午饭吃了米饭和青菜。",
+          "occurred_at": "2026-10-28T08:00:09Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_10",
+          "turn_id": "normal_turn_05",
+          "sequence_no": 10,
+          "role": "assistant",
+          "content": "谢谢您分享今天的午饭，米饭和青菜都记录下来了。",
+          "occurred_at": "2026-10-28T08:00:10Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_11",
+          "turn_id": "normal_turn_06",
+          "sequence_no": 11,
+          "role": "user",
+          "content": "刚才给家人打了电话，我觉得很高兴。",
+          "occurred_at": "2026-10-28T08:00:11Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_12",
+          "turn_id": "normal_turn_06",
+          "sequence_no": 12,
+          "role": "assistant",
+          "content": "能和家人联系让您感到高兴，想聊聊电话里的有趣事情吗？",
+          "occurred_at": "2026-10-28T08:00:12Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_13",
+          "turn_id": "normal_turn_07",
+          "sequence_no": 13,
+          "role": "user",
+          "content": "今天下雨，出门计划取消了，有些失望。",
+          "occurred_at": "2026-10-28T08:00:13Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_14",
+          "turn_id": "normal_turn_07",
+          "sequence_no": 14,
+          "role": "assistant",
+          "content": "计划被天气打乱可能让人失望，您愿意说说原本想去哪里吗？",
+          "occurred_at": "2026-10-28T08:00:14Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_15",
+          "turn_id": "normal_turn_08",
+          "sequence_no": 15,
+          "role": "user",
+          "content": "我把水杯放在桌子上了。",
+          "occurred_at": "2026-10-28T08:00:15Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_16",
+          "turn_id": "normal_turn_08",
+          "sequence_no": 16,
+          "role": "assistant",
+          "content": "好的，水杯放在桌子上了。",
+          "occurred_at": "2026-10-28T08:00:16Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_17",
+          "turn_id": "normal_turn_09",
+          "sequence_no": 17,
+          "role": "user",
+          "content": "昨晚没睡好，今天有点烦闷。",
+          "occurred_at": "2026-10-28T08:00:17Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_18",
+          "turn_id": "normal_turn_09",
+          "sequence_no": 18,
+          "role": "assistant",
+          "content": "没睡好时一天可能比较难熬，我愿意听听今天让您烦闷的事情。",
+          "occurred_at": "2026-10-28T08:00:18Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_19",
+          "turn_id": "normal_turn_10",
+          "sequence_no": 19,
+          "role": "user",
+          "content": "看完一本喜欢的书，我很满足。",
+          "occurred_at": "2026-10-28T08:00:19Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_20",
+          "turn_id": "normal_turn_10",
+          "sequence_no": 20,
+          "role": "assistant",
+          "content": "读到喜欢的书带来了满足感，哪一段给您留下了印象？",
+          "occurred_at": "2026-10-28T08:00:20Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_21",
+          "turn_id": "normal_turn_11",
+          "sequence_no": 21,
+          "role": "user",
+          "content": "我想安静坐一会儿。",
+          "occurred_at": "2026-10-28T08:00:21Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_22",
+          "turn_id": "normal_turn_11",
+          "sequence_no": 22,
+          "role": "assistant",
+          "content": "好的，您可以按自己的节奏休息，想说话时我会在这里。",
+          "occurred_at": "2026-10-28T08:00:22Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_23",
+          "turn_id": "normal_turn_12",
+          "sequence_no": 23,
+          "role": "user",
+          "content": "最近有点想念老朋友。",
+          "occurred_at": "2026-10-28T08:00:23Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_24",
+          "turn_id": "normal_turn_12",
+          "sequence_no": 24,
+          "role": "assistant",
+          "content": "想念老朋友时，可能会想到很多共同的经历，愿意讲一个片段吗？",
+          "occurred_at": "2026-10-28T08:00:24Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_25",
+          "turn_id": "normal_turn_13",
+          "sequence_no": 25,
+          "role": "user",
+          "content": "家里花盆开花了，我很开心。",
+          "occurred_at": "2026-10-28T08:00:25Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_26",
+          "turn_id": "normal_turn_13",
+          "sequence_no": 26,
+          "role": "assistant",
+          "content": "花开了真是一件让人开心的事情，您养的是什么花？",
+          "occurred_at": "2026-10-28T08:00:26Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_27",
+          "turn_id": "normal_turn_14",
+          "sequence_no": 27,
+          "role": "user",
+          "content": "今天安排是整理衣柜。",
+          "occurred_at": "2026-10-28T08:00:27Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_28",
+          "turn_id": "normal_turn_14",
+          "sequence_no": 28,
+          "role": "assistant",
+          "content": "我听到了，今天安排整理衣柜，您可以按舒服的节奏来。",
+          "occurred_at": "2026-10-28T08:00:28Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_29",
+          "turn_id": "normal_turn_15",
+          "sequence_no": 29,
+          "role": "user",
+          "content": "有几件事情堆在一起，我觉得压力有点大。",
+          "occurred_at": "2026-10-28T08:00:29Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_30",
+          "turn_id": "normal_turn_15",
+          "sequence_no": 30,
+          "role": "assistant",
+          "content": "事情聚在一起可能让人有压力，我们可以先选一件最容易开始的小事。",
+          "occurred_at": "2026-10-28T08:00:30Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_31",
+          "turn_id": "normal_turn_16",
+          "sequence_no": 31,
+          "role": "user",
+          "content": "刚刚完成了一次简单练习，我感觉不错。",
+          "occurred_at": "2026-10-28T08:00:31Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_32",
+          "turn_id": "normal_turn_16",
+          "sequence_no": 32,
+          "role": "assistant",
+          "content": "完成练习让您感觉不错，您愿意说说哪部分比较顺利吗？",
+          "occurred_at": "2026-10-28T08:00:32Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_33",
+          "turn_id": "normal_turn_17",
+          "sequence_no": 33,
+          "role": "user",
+          "content": "手机电量还剩一半。",
+          "occurred_at": "2026-10-28T08:00:33Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_34",
+          "turn_id": "normal_turn_17",
+          "sequence_no": 34,
+          "role": "assistant",
+          "content": "好的，手机电量大约还剩一半。",
+          "occurred_at": "2026-10-28T08:00:34Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_35",
+          "turn_id": "normal_turn_18",
+          "sequence_no": 35,
+          "role": "user",
+          "content": "我说不清现在的心情，有好也有不好。",
+          "occurred_at": "2026-10-28T08:00:35Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_36",
+          "turn_id": "normal_turn_18",
+          "sequence_no": 36,
+          "role": "assistant",
+          "content": "心情有时很复杂，不必急着用一个词概括，您愿意慢慢说说吗？",
+          "occurred_at": "2026-10-28T08:00:36Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_37",
+          "turn_id": "normal_turn_19",
+          "sequence_no": 37,
+          "role": "user",
+          "content": "傍晚想在楼下坐坐，看看树。",
+          "occurred_at": "2026-10-28T08:00:37Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_38",
+          "turn_id": "normal_turn_19",
+          "sequence_no": 38,
+          "role": "assistant",
+          "content": "听起来您想在楼下看看树，可以按照自己的感受安排。",
+          "occurred_at": "2026-10-28T08:00:38Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "normal_message_39",
+          "turn_id": "normal_turn_20",
+          "sequence_no": 39,
+          "role": "user",
+          "content": "谢谢陪我说话，今天先聊到这里。",
+          "occurred_at": "2026-10-28T08:00:39Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "normal_message_40",
+          "turn_id": "normal_turn_20",
+          "sequence_no": 40,
+          "role": "assistant",
+          "content": "谢谢您的分享，今天的聊天就到这里，祝您接下来的时间平静舒适。",
+          "occurred_at": "2026-10-28T08:00:40Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        }
+      ],
+      "ended_at": "2026-10-28T08:01:00Z",
+      "last_sequence_no": 40
+    },
+    "fault": {
+      "session": {
+        "source": "doubao_realtime",
+        "device_id": "virtual_twenty_device",
+        "external_session_id": "twenty_fault_v1",
+        "started_at": "2026-10-28T08:00:00Z",
+        "is_test": true
+      },
+      "messages": [
+        {
+          "external_message_id": "fault_message_01",
+          "turn_id": "fault_turn_01",
+          "sequence_no": 1,
+          "role": "user",
+          "content": "今天早上和邻居散步，我很开心。",
+          "occurred_at": "2026-10-28T08:00:01Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_02",
+          "turn_id": "fault_turn_01",
+          "sequence_no": 2,
+          "role": "assistant",
+          "content": "听起来这次散步让您心情不错，愿意分享沿途看到了什么吗？",
+          "occurred_at": "2026-10-28T08:00:02Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_03",
+          "turn_id": "fault_turn_02",
+          "sequence_no": 3,
+          "role": "user",
+          "content": "现在是上午九点，窗外有阳光。",
+          "occurred_at": "2026-10-28T08:00:03Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_04",
+          "turn_id": "fault_turn_02",
+          "sequence_no": 4,
+          "role": "assistant",
+          "content": "我听到了，今天上午九点，窗外有阳光。",
+          "occurred_at": "2026-10-28T08:00:04Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_05",
+          "turn_id": "fault_turn_03",
+          "sequence_no": 5,
+          "role": "user",
+          "content": "这几天一个人在家，我有些孤独。",
+          "occurred_at": "2026-10-28T08:00:05Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_06",
+          "turn_id": "fault_turn_03",
+          "sequence_no": 6,
+          "role": "assistant",
+          "content": "一个人在家可能让您想找人说说话，我愿意听您慢慢讲。",
+          "occurred_at": "2026-10-28T08:00:06Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_07",
+          "turn_id": "fault_turn_04",
+          "sequence_no": 7,
+          "role": "user",
+          "content": "明天要办一件事情，我有一点担心。",
+          "occurred_at": "2026-10-28T08:00:07Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_08",
+          "turn_id": "fault_turn_04",
+          "sequence_no": 8,
+          "role": "assistant",
+          "content": "我们可以先说说您最担心的部分，也可以一起把事情分成几步。",
+          "occurred_at": "2026-10-28T08:00:08Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_09",
+          "turn_id": "fault_turn_05",
+          "sequence_no": 9,
+          "role": "user",
+          "content": "午饭吃了米饭和青菜。",
+          "occurred_at": "2026-10-28T08:00:09Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_10",
+          "turn_id": "fault_turn_05",
+          "sequence_no": 10,
+          "role": "assistant",
+          "content": "谢谢您分享今天的午饭，米饭和青菜都记录下来了。",
+          "occurred_at": "2026-10-28T08:00:10Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_11",
+          "turn_id": "fault_turn_06",
+          "sequence_no": 11,
+          "role": "user",
+          "content": "刚才给家人打了电话，我觉得很高兴。",
+          "occurred_at": "2026-10-28T08:00:11Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_12",
+          "turn_id": "fault_turn_06",
+          "sequence_no": 12,
+          "role": "assistant",
+          "content": "能和家人联系让您感到高兴，想聊聊电话里的有趣事情吗？",
+          "occurred_at": "2026-10-28T08:00:12Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_13",
+          "turn_id": "fault_turn_07",
+          "sequence_no": 13,
+          "role": "user",
+          "content": "今天下雨，出门计划取消了，有些失望。",
+          "occurred_at": "2026-10-28T08:00:13Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_14",
+          "turn_id": "fault_turn_07",
+          "sequence_no": 14,
+          "role": "assistant",
+          "content": "计划被天气打乱可能让人失望，您愿意说说原本想去哪里吗？",
+          "occurred_at": "2026-10-28T08:00:14Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_15",
+          "turn_id": "fault_turn_08",
+          "sequence_no": 15,
+          "role": "user",
+          "content": "我把水杯放在桌子上了。",
+          "occurred_at": "2026-10-28T08:00:15Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_16",
+          "turn_id": "fault_turn_08",
+          "sequence_no": 16,
+          "role": "assistant",
+          "content": "好的，水杯放在桌子上了。",
+          "occurred_at": "2026-10-28T08:00:16Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_17",
+          "turn_id": "fault_turn_09",
+          "sequence_no": 17,
+          "role": "user",
+          "content": "昨晚没睡好，今天有点烦闷。",
+          "occurred_at": "2026-10-28T08:00:17Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_18",
+          "turn_id": "fault_turn_09",
+          "sequence_no": 18,
+          "role": "assistant",
+          "content": "没睡好时一天可能比较难熬，我愿意听听今天让您烦闷的事情。",
+          "occurred_at": "2026-10-28T08:00:18Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_19",
+          "turn_id": "fault_turn_10",
+          "sequence_no": 19,
+          "role": "user",
+          "content": "看完一本喜欢的书，我很满足。",
+          "occurred_at": "2026-10-28T08:00:19Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_20",
+          "turn_id": "fault_turn_10",
+          "sequence_no": 20,
+          "role": "assistant",
+          "content": "读到喜欢的书带来了满足感，哪一段给您留下了印象？",
+          "occurred_at": "2026-10-28T08:00:20Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_21",
+          "turn_id": "fault_turn_11",
+          "sequence_no": 21,
+          "role": "user",
+          "content": "我想安静坐一会儿。",
+          "occurred_at": "2026-10-28T08:00:21Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_22",
+          "turn_id": "fault_turn_11",
+          "sequence_no": 22,
+          "role": "assistant",
+          "content": "好的，您可以按自己的节奏休息，想说话时我会在这里。",
+          "occurred_at": "2026-10-28T08:00:22Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_23",
+          "turn_id": "fault_turn_12",
+          "sequence_no": 23,
+          "role": "user",
+          "content": "最近有点想念老朋友。",
+          "occurred_at": "2026-10-28T08:00:23Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_24",
+          "turn_id": "fault_turn_12",
+          "sequence_no": 24,
+          "role": "assistant",
+          "content": "想念老朋友时，可能会想到很多共同的经历，愿意讲一个片段吗？",
+          "occurred_at": "2026-10-28T08:00:24Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_25",
+          "turn_id": "fault_turn_13",
+          "sequence_no": 25,
+          "role": "user",
+          "content": "家里花盆开花了，我很开心。",
+          "occurred_at": "2026-10-28T08:00:25Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_26",
+          "turn_id": "fault_turn_13",
+          "sequence_no": 26,
+          "role": "assistant",
+          "content": "花开了真是一件让人开心的事情，您养的是什么花？",
+          "occurred_at": "2026-10-28T08:00:26Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_27",
+          "turn_id": "fault_turn_14",
+          "sequence_no": 27,
+          "role": "user",
+          "content": "今天安排是整理衣柜。",
+          "occurred_at": "2026-10-28T08:00:27Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_28",
+          "turn_id": "fault_turn_14",
+          "sequence_no": 28,
+          "role": "assistant",
+          "content": "我听到了，今天安排整理衣柜，您可以按舒服的节奏来。",
+          "occurred_at": "2026-10-28T08:00:28Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_29",
+          "turn_id": "fault_turn_15",
+          "sequence_no": 29,
+          "role": "user",
+          "content": "有几件事情堆在一起，我觉得压力有点大。",
+          "occurred_at": "2026-10-28T08:00:29Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_30",
+          "turn_id": "fault_turn_15",
+          "sequence_no": 30,
+          "role": "assistant",
+          "content": "事情聚在一起可能让人有压力，我们可以先选一件最容易开始的小事。",
+          "occurred_at": "2026-10-28T08:00:30Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_31",
+          "turn_id": "fault_turn_16",
+          "sequence_no": 31,
+          "role": "user",
+          "content": "刚刚完成了一次简单练习，我感觉不错。",
+          "occurred_at": "2026-10-28T08:00:31Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_32",
+          "turn_id": "fault_turn_16",
+          "sequence_no": 32,
+          "role": "assistant",
+          "content": "完成练习让您感觉不错，您愿意说说哪部分比较顺利吗？",
+          "occurred_at": "2026-10-28T08:00:32Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_33",
+          "turn_id": "fault_turn_17",
+          "sequence_no": 33,
+          "role": "user",
+          "content": "手机电量还剩一半。",
+          "occurred_at": "2026-10-28T08:00:33Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_34",
+          "turn_id": "fault_turn_17",
+          "sequence_no": 34,
+          "role": "assistant",
+          "content": "好的，手机电量大约还剩一半。",
+          "occurred_at": "2026-10-28T08:00:34Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_35",
+          "turn_id": "fault_turn_18",
+          "sequence_no": 35,
+          "role": "user",
+          "content": "我说不清现在的心情，有好也有不好。",
+          "occurred_at": "2026-10-28T08:00:35Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_36",
+          "turn_id": "fault_turn_18",
+          "sequence_no": 36,
+          "role": "assistant",
+          "content": "心情有时很复杂，不必急着用一个词概括，您愿意慢慢说说吗？",
+          "occurred_at": "2026-10-28T08:00:36Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_37",
+          "turn_id": "fault_turn_19",
+          "sequence_no": 37,
+          "role": "user",
+          "content": "傍晚想在楼下坐坐，看看树。",
+          "occurred_at": "2026-10-28T08:00:37Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_38",
+          "turn_id": "fault_turn_19",
+          "sequence_no": 38,
+          "role": "assistant",
+          "content": "听起来您想在楼下看看树，可以按照自己的感受安排。",
+          "occurred_at": "2026-10-28T08:00:38Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        },
+        {
+          "external_message_id": "fault_message_39",
+          "turn_id": "fault_turn_20",
+          "sequence_no": 39,
+          "role": "user",
+          "content": "谢谢陪我说话，今天先聊到这里。",
+          "occurred_at": "2026-10-28T08:00:39Z",
+          "text_status": "completed",
+          "playback_status": "not_applicable"
+        },
+        {
+          "external_message_id": "fault_message_40",
+          "turn_id": "fault_turn_20",
+          "sequence_no": 40,
+          "role": "assistant",
+          "content": "谢谢您的分享，今天的聊天就到这里，祝您接下来的时间平静舒适。",
+          "occurred_at": "2026-10-28T08:00:40Z",
+          "text_status": "completed",
+          "playback_status": "completed"
+        }
+      ],
+      "ended_at": "2026-10-28T08:01:00Z",
+      "last_sequence_no": 40
+    }
+  }
+}

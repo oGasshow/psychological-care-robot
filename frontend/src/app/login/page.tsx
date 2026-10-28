@@ -33,7 +33,7 @@ export default function LoginPage() {
 
     try {
       const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-      const url = `http://127.0.0.1:8000${endpoint}`;
+      const url = endpoint;
       
       const response = await fetch(url, {
         method: 'POST',
@@ -55,8 +55,8 @@ export default function LoginPage() {
       if (isLogin) {
         // 登录成功：保存 token
         localStorage.setItem('access_token', data.access_token);
-        localStorage.setItem('username', formData.username);
-        router.push('/dashboard');
+        localStorage.removeItem('username');
+        router.push('/robot-care');
       } else {
         // 注册成功：提示并切换到登录
         alert('注册成功！请登录');
@@ -211,7 +211,7 @@ export default function LoginPage() {
               <span className="text-blue-500 text-xl">🔒</span>
               <div className="text-sm text-gray-600">
                 <p className="font-semibold text-gray-700 mb-1">隐私保护</p>
-                <p>所有数据本地存储，不会上传到云端</p>
+                <p>记录保存在项目后端。请仅在获准环境中使用；本地演示使用虚构测试数据。</p>
               </div>
             </div>
           </div>

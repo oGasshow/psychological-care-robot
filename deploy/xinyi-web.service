@@ -1,0 +1,15 @@
+# TEMPLATE ONLY: npm ci and build first with this same BACKEND_URL.
+[Unit]
+Description=Xinyi Next frontend
+After=xinyi-api.service
+[Service]
+User=xinyi
+WorkingDirectory=/opt/xinyi/frontend
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=BACKEND_URL=http://127.0.0.1:8000
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000
+Restart=on-failure
+UMask=0077
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,40 @@
+{
+  "template_version": "support-v1",
+  "review_state": "draft_pending_professional_review",
+  "applicability_scope": "single_current_user_completed_text_demo",
+  "valid_timing": "while_source_input_revision_is_current",
+  "templates": {
+    "loneliness_listening": {
+      "policy_kind": "listening",
+      "text": "听起来你有些孤独。如果你愿意，可以说说最近最想和人分享的事情，我会认真听。"
+    },
+    "worry_optional_relaxation": {
+      "policy_kind": "optional_relaxation",
+      "text": "听起来有些事情让你担心。你愿意先说说最挂心的是什么吗？也可以自愿停一会儿，按自己舒服的节奏呼吸；觉得不适就停止。"
+    },
+    "negative_comfort": {
+      "policy_kind": "comfort",
+      "text": "听起来这段感受不太好受。如果你愿意，可以多说一点，我会认真听。也可以和你信任的人聊聊。"
+    },
+    "positive_encouragement": {
+      "policy_kind": "encouragement",
+      "text": "听到你分享这份开心，我也愿意继续听。今天有什么让你特别满意的小事吗？"
+    },
+    "neutral_gentle_question": {
+      "policy_kind": "gentle_question",
+      "text": "谢谢你分享今天的事情。如果你愿意，还可以说说当时的感受。"
+    },
+    "unknown_listening": {
+      "policy_kind": "listening",
+      "text": "我还不能确定这段话表达的感受。如果你愿意，可以多说一点你此刻的心情。"
+    },
+    "safety_human_help": {
+      "policy_kind": "safety_prompt",
+      "text": "你刚才的话让我很关注你此刻的安全。请先暂停可能伤害自己或他人的行为，尽快联系身边可信任的人，请对方陪伴你；如果危险迫在眉睫，请寻求当地紧急服务或尽快到就近急诊获得帮助。我只能提供陪伴，不能替代专业帮助。"
+    },
+    "safety_unclear": {
+      "policy_kind": "gentle_question",
+      "text": "这段文字中有需要进一步确认的安全表达。如果这是你此刻的感受，请告诉身边可信任的人；如果危险迫在眉睫，请寻求当地紧急服务或就近急诊帮助。"
+    }
+  }
+}

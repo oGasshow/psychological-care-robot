@@ -1,0 +1,28 @@
+{
+  "rules_version": "rules-v1",
+  "scope": "single_current_user_completed_text; finite Chinese text rules, not a clinical assessment",
+  "positive": {
+    "emotion_positive_daily": ["开心", "高兴", "愉快", "快乐", "满意", "幸福", "轻松", "期待", "心情不错", "舒心"]
+  },
+  "negative": {
+    "emotion_negative_loneliness": ["孤独", "孤单", "寂寞", "没人陪", "没有人陪", "没人愿意听"],
+    "emotion_negative_worry": ["担心", "担忧", "焦虑", "压力很大", "压力好大", "紧张", "害怕", "烦恼"],
+    "emotion_negative_sadness": ["难过", "伤心", "痛苦", "失落", "沮丧", "不开心", "不高兴", "心情不好"]
+  },
+  "neutral_patterns": [
+    "^(?:我)?(?:今天|刚才|现在|上午|下午|晚上|每天)?(?:已经|正在|准备|刚刚|刚|去|在)?(?:吃饭|吃了饭|吃过饭|喝水|喝了水|散步|去公园|到了公园|看书|看了书|买菜|买了菜|坐在椅子上|在家|走路|睡觉|起床|出门|回家|去了公园|去了超市)(?:[\\u4e00-\\u9fff0-9点分小时个一二三四五六七八九十了钟步本杯]*)$",
+    "^(?:今天|现在)(?:是)?(?:星期[一二三四五六日天]|周[一二三四五六日天]|[0-9一二三四五六七八九十]+点)(?:了)?$",
+    "^(?:今天|现在)的?天气(?:是|很)?(?:晴朗|晴天|阴天|下雨|多云)$"
+  ],
+  "negation_pattern": "(?:一点也不|一点都不|并没有|并不是|并不|没有|没|不再|不怎么|不太|不是|从不|不)(?:感到|觉得|感觉|那么|很|太|十分)?$",
+  "hypothetical_pattern": "(?:希望|但愿|如果|假如|想要|想)(?:变得|能够|可以|能)?$",
+  "reporting_pattern": "^(?:今天|昨天|最近|刚才)?(?:我(?:听到|听说|听|看到|看见))?(?:我的)?(?:朋友|家人|同事|邻居|别人|他|她|他们|她们|妈妈|爸爸|孩子|新闻|故事|电影|书里|网上)",
+  "danger_patterns": [
+    "(?:我|本人)(?:现在|真的|已经|已经决定|决定|打算|准备)?(?:想要|想|要|准备|打算|决定)(?:自杀|结束自己的生命|结束生命|伤害自己|伤害别人|杀死别人|杀人)",
+    "(?:我|本人)(?:现在|真的|已经)?不想活了",
+    "(?:我|本人)(?:现在|真的)?想死"
+  ],
+  "danger_context_terms": ["自杀", "不想活", "想死", "伤害自己", "伤害别人", "结束生命", "结束自己的生命", "杀人"],
+  "negated_danger_patterns": ["(?:我|本人)(?:现在|真的)?(?:不会|不想|没有想过|从没想过|并不想|不准备|没有打算)(?:去|要)?(?:自杀|伤害自己|伤害别人|结束生命|结束自己的生命|杀人|死)"],
+  "precedence": ["quoted_or_reported_text_excluded", "double_negation_is_unknown", "hypothetical_cues_excluded", "negated_negative_cues_excluded", "negated_positive_is_negative", "mixed_is_unknown", "finite_fact_patterns_only_else_unknown"]
+}

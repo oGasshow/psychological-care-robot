@@ -1,0 +1,13 @@
+# TEMPLATE ONLY: one or more workers may share the same SQLite and fixed config.
+[Unit]
+Description=Xinyi persistent care analysis worker
+After=xinyi-api.service
+[Service]
+User=xinyi
+WorkingDirectory=/opt/xinyi/backend
+EnvironmentFile=/etc/xinyi/backend.env
+ExecStart=/opt/xinyi/.venv/bin/python -m app.care.worker --instance-id company-worker-1
+Restart=on-failure
+UMask=0077
+[Install]
+WantedBy=multi-user.target

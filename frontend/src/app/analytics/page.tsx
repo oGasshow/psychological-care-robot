@@ -72,7 +72,7 @@ export default function AnalyticsPage() {
   const fetchUserInfo = async () => {
     const token = localStorage.getItem('access_token');
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/auth/me', {
+      const res = await fetch('/api/auth/me', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -96,7 +96,7 @@ export default function AnalyticsPage() {
       
       // 获取日记数据
       const diariesRes = await fetch(
-        `http://127.0.0.1:8000/api/diary/list?start_date=${startDate}&end_date=${endDate}`,
+        `/api/diary/list?start_date=${startDate}&end_date=${endDate}`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       if (diariesRes.ok) {
@@ -106,7 +106,7 @@ export default function AnalyticsPage() {
 
       // 获取评估数据
       const assessmentsRes = await fetch(
-        `http://127.0.0.1:8000/api/assessments/history`,
+        `/api/assessments/history`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       if (assessmentsRes.ok) {
@@ -121,7 +121,7 @@ export default function AnalyticsPage() {
 
       // 获取训练数据
       const trainingsRes = await fetch(
-        `http://127.0.0.1:8000/api/training/records`,
+        `/api/training/records`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       if (trainingsRes.ok) {

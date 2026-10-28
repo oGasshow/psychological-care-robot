@@ -1,0 +1,13 @@
+# TEMPLATE ONLY: paths, account and Linux service behavior need company validation.
+[Unit]
+Description=Xinyi FastAPI
+After=network.target
+[Service]
+User=xinyi
+WorkingDirectory=/opt/xinyi/backend
+EnvironmentFile=/etc/xinyi/backend.env
+ExecStart=/opt/xinyi/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --log-level warning
+Restart=on-failure
+UMask=0077
+[Install]
+WantedBy=multi-user.target

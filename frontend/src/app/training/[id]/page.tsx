@@ -61,7 +61,7 @@ export default function TrainingDetailPage() {
   const fetchTrainingDetail = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://127.0.0.1:8000/api/training/${trainingId}`, {
+      const response = await fetch(`/api/training/${trainingId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -98,7 +98,7 @@ export default function TrainingDetailPage() {
   const submitFeedback = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://127.0.0.1:8000/api/training/complete', {
+      const response = await fetch('/api/training/complete', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -103,13 +103,17 @@ def verified_owner(transport):
         raise OutboxError('identity_protocol_error') from None
 
 class Outbox:
-    def __init__(self, path, base_url, owner_user_id, *, transport=None, capacity=10000):
+    def __init__(self, path, base_url, owner_user_id, *, transport=None, capacity=10000,
+                 upload_policy='streaming'):
         if type(owner_user_id) is not int or owner_user_id < 1 or capacity < 1:
             raise OutboxError('invalid_configuration')
+        if upload_policy not in ('streaming', 'after_close'):
+            raise OutboxError('invalid_upload_policy')
         self.path = Path(path).resolve()
         self.base = normalize_base(base_url)
         self.owner = owner_user_id
         self.capacity = capacity
+        self.upload_policy = upload_policy
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with self.write() as db:
@@ -266,11 +270,17 @@ class Outbox:
     def status(self):
         # Do not expose stored message bodies or credentials through default status.
         with self.db() as db:
-            return [dict(r) for r in db.execute('''SELECT t.id,s.external,t.kind,t.sequence,t.state,
+            rows = [dict(r) for r in db.execute('''SELECT t.id,s.external,t.kind,t.sequence,t.state,
               t.attempts,t.transient_count,t.next_at,t.last_error,t.receipt,s.server_id,s.next_sequence,s.state AS local_state,
               p.auth_blocked AS partition_auth_blocked,p.auth_error AS partition_auth_error
               FROM tasks t JOIN sessions s ON s.id=t.session JOIN targets p ON p.base=s.base AND p.owner=s.owner
               WHERE s.base=? AND s.owner=? ORDER BY t.id''', (self.base, self.owner))]
+        for row in rows:
+            waiting = self.upload_policy == 'after_close' and row['local_state'] == 'open' and row['state'] != 'acked'
+            row.update(upload_policy=self.upload_policy, waiting_for_close=waiting,
+                       display_status=('身份暂停' if row['partition_auth_blocked'] else
+                                       '等待会话结束' if waiting else row['state']))
+        return rows
 
     def resume(self, *, include_dead=False):
         # Explicit operator action, never silently rewrites immutable payloads/IDs.
@@ -361,8 +371,11 @@ class Worker:
                   AND session IN (SELECT id FROM sessions WHERE base=? AND owner=?)""", (box.base, box.owner))
                 task = db.execute("""SELECT t.*,s.server_id,s.external FROM tasks t JOIN sessions s ON s.id=t.session
                   WHERE s.base=? AND s.owner=? AND s.state!='deleted' AND t.state IN ('pending','retry_wait')
-                  AND t.next_at<=? AND (t.kind='session' OR s.server_id IS NOT NULL) ORDER BY t.id LIMIT 1""",
-                                  (box.base, box.owner, self.clock())).fetchone()
+                  AND t.next_at<=? AND (t.kind='session' OR s.server_id IS NOT NULL)
+                  AND (?='streaming' OR (s.state='sealed' AND (t.kind!='close' OR NOT EXISTS (
+                    SELECT 1 FROM tasks m WHERE m.session=s.id AND m.kind='message' AND m.state!='acked'))))
+                  ORDER BY t.id LIMIT 1""",
+                                  (box.base, box.owner, self.clock(), box.upload_policy)).fetchone()
                 if task is None:
                     return False
                 task = dict(task)

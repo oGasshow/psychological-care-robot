@@ -66,7 +66,7 @@ export default function ChatPage() {
 
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://127.0.0.1:8000/api/chat/send', {
+      const response = await fetch('/api/chat/send', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -165,7 +165,7 @@ export default function ChatPage() {
 
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://127.0.0.1:8000/api/chat/clear', {
+      const response = await fetch('/api/chat/clear', {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

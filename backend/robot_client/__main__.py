@@ -17,6 +17,8 @@ def run():
     p.add_argument('--base-url', default=os.getenv('ROBOT_BASE_URL'))
     p.add_argument('--owner', type=int, default=None)
     p.add_argument('--capacity', type=int, default=10000)
+    p.add_argument('--upload-policy', choices=('streaming', 'after_close'),
+                   default=os.getenv('ROBOT_UPLOAD_POLICY', 'streaming'))
     sub = p.add_subparsers(dest='action', required=True)
     sub.add_parser('bind')
     sub.add_parser('upgrade')
@@ -46,7 +48,8 @@ def run():
             owner = verified_owner(transport)
         if owner is None:
             p.error('--owner is required; use bind first to verify identity')
-        box = Outbox(args.outbox, args.base_url, owner, transport=transport, capacity=args.capacity)
+        box = Outbox(args.outbox, args.base_url, owner, transport=transport, capacity=args.capacity,
+                     upload_policy=args.upload_policy)
         if args.action == 'bind':
             print(json.dumps({'owner_user_id': owner, 'bound': True}))
         elif args.action == 'replay':

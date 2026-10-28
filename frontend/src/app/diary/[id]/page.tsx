@@ -62,7 +62,7 @@ export default function DiaryDetailPage() {
   const fetchDiary = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://127.0.0.1:8000/api/diary/${diaryId}`, {
+      const response = await fetch(`/api/diary/${diaryId}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 
@@ -89,7 +89,7 @@ export default function DiaryDetailPage() {
 
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://127.0.0.1:8000/api/diary/${diaryId}`, {
+      const response = await fetch(`/api/diary/${diaryId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       });

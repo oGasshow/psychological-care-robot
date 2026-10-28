@@ -98,17 +98,17 @@ def install_handlers(app):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
-        if request.url.path.startswith(PREFIX):
+        if request.url.path.startswith((PREFIX, '/api/robot-insights')):
             # Never echo rejected content, password, token or Pydantic input/context.
             return error_response(422, 'validation_error', [
-                {'loc': list(e['loc']), 'type': e['type']} for e in exc.errors()
+                {'loc': [part if type(part) is int or part in {'body','query','path','sid','record_id','job_id','policy_id','delivery_id','limit','cursor','scope','session_ids','time_from','time_to','from','to','request_id','base_revision','content','source','device_id','external_session_id','started_at','is_test','external_message_id','turn_id','sequence_no','role','occurred_at','text_status','playback_status','ended_at','last_sequence_no'} else '*' for part in e['loc']], 'type': e['type']} for e in exc.errors()
             ])
         from fastapi.exception_handlers import request_validation_exception_handler
         return await request_validation_exception_handler(request, exc)
 
     @app.exception_handler(SQLAlchemyError)
     async def storage_error(request, exc):
-        if request.url.path.startswith(PREFIX):
+        if request.url.path.startswith((PREFIX, '/api/robot-insights')):
             return error_response(503, 'storage_busy')
         return JSONResponse(status_code=500, content={'detail': 'Storage error'})
 
@@ -350,6 +350,8 @@ def delete_session(sid: ResourceID, uid=Depends(owner)):
     with transaction(True) as db:
         row = owned(db, sid, uid, deleted_ok=True)
         if row.state != 'deleted':
+            from .care.service import clear_session
+            clear_session(db, sid)
             db.query(RecordMessage).filter_by(recording_session_id=sid).delete()
             for name in ('device_id', 'started_at', 'is_test', 'created_at', 'ended_at', 'last_sequence_no'):
                 setattr(row, name, None)

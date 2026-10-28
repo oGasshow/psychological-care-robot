@@ -59,7 +59,7 @@ export default function AssessmentResultPage() {
       
       // 获取评估结果
       const resultResponse = await fetch(
-        `http://127.0.0.1:8000/api/assessments/${recordId}/result`,
+        `/api/assessments/${recordId}/result`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -73,7 +73,7 @@ export default function AssessmentResultPage() {
 
         // 获取趋势数据
         const trendResponse = await fetch(
-          `http://127.0.0.1:8000/api/assessments/trends/${resultData.scale_name}`,
+          `/api/assessments/trends/${resultData.scale_name}`,
           {
             headers: {
               'Authorization': `Bearer ${token}`,
