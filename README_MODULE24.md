@@ -62,6 +62,8 @@ $env:DATABASE_URL='sqlite:///./runtime/local.db'
 
 OpenAPI 中路径变量名为 `sid`，对应上述 `recording_session_id`；URL与业务语义相同。请求、响应详情见 `app/robot_records.py`、共享的 `robot_client/schemas.py` 和交付的 OpenAPI。请求时间统一UTC、微秒精度、Z结尾；原文不做strip。
 
+所有内部会话ID路径统一限制在1—9223372036854775807（SQLite有符号64位整数）；超范围或超长数字返回422 `validation_error`，合法范围内不存在或他人的资源仍为404。OpenAPI同时声明ID边界和分页limit的1—100边界。
+
 会话唯一键为 `(user_id,source,external_session_id)`；消息唯一键为 `(recording_session_id,external_message_id)` 和 `(recording_session_id,sequence_no)`。写事务先 `BEGIN IMMEDIATE`，再检查状态；唯一约束和冲突回读兜底，提交后才ACK。读取统计使用真实聚合，不维护可漂移缓存。新表外键实际启用，ID使用 SQLite AUTOINCREMENT 以支撑快照。
 
 关闭不代表传齐，closed且计数等于最终上界才完整。文本 `completed` 不代表播放完成，`canceled` 不是完整发言；`unknown` 不会自动升级。没有 PATCH。下游应按状态处理，不能把助手生成文字等同于老人听到的全部文字。
@@ -92,7 +94,7 @@ Python库中 `Outbox.create_session(body)`、`enqueue(external,event)`、`close_
 |---|---|
 | pending / sending | 已持久化待处理 / 已领取未确认；取得OS worker锁后可恢复sending |
 | retry_wait | 网络、429或5xx；持久化最早重试时间 |
-| blocked_auth | 身份、凭证或目标不匹配；换回正确凭证后显式resume |
+| blocked_auth | 身份、凭证或目标不匹配；整个服务地址＋用户分区持久暂停，换回正确凭证后显式resume |
 | dead_letter | 永久HTTP错误或成功响应校验失败；查回原记录并修复后显式重放 |
 | paused_retry | 连续暂时失败达到阈值；修复后显式resume |
 | acked | 编号和关键元数据核验成功；正文已清除，保留最小回执 |
@@ -106,6 +108,10 @@ Python库中 `Outbox.create_session(body)`、`enqueue(external,event)`、`close_
 ```
 
 队列容量默认10000条未ACK任务（整个文件统计，包含暂停/失败任务），`--capacity`可调整；满时 `queue_full`，写失败 `local_storage_error`，不会把失败入队当作成功。ACK元数据不会随队列空而丢失。操作系统文件锁限制同一outbox文件同时执行一个网络任务；不支持并行worker来提升吞吐。
+
+认证暂停存于targets表的`auth_blocked/auth_error`，worker在领取任务前读取。暂停后新增会话、消息和关闭任务仍可可靠入队，均保持blocked_auth；换回正确凭证、重新bind、重新创建Outbox对象或重启进程均不会自动解除。`resume`在同一事务中只解除当前base_url＋owner_user_id分区及其可恢复任务；恢复后worker仍逐任务核验`/api/auth/me`。其他用户/目标独立处理。`status`每条任务附带`partition_auth_blocked/partition_auth_error`，库接口`partition_status()`也可查看没有待传任务的分区。
+
+客户端共享校验模型隐藏Pydantic错误输入；Outbox对非法业务体抛出`InputValidationError`（继承OutboxError），默认字符串仅为validation_error，details只保留白名单字段位置和错误类型。CLI失败输出同样的脱敏JSON到stderr并退出1，不打印原文、截断片段、input/context或默认traceback。校验失败不入队，也不推进序号。
 
 410只有在确认错误码 `session_deleted` 时才清理该服务/用户/会话分区的正文。离线设备无法立即获知远端删除；下次连接或显式purge才清理。本地purge阻止后续重建，不能撤销已经发出的HTTP请求；远端DELETE提供最终防重建屏障。SQLite逻辑删除与secure_delete不能替代系统磁盘、旧备份/WAL或文件系统的物理擦除策略，保留政策待L3确认。
 
@@ -123,6 +129,18 @@ Python库中 `Outbox.create_session(body)`、`enqueue(external,event)`、`close_
 ```
 
 备份使用SQLite online backup API，支持提交内容位于WAL时的一致备份，并做完整性/外键检查。也可同样备份outbox文件。恢复到旧备份会失去该时刻以后的记录，应保留当前库并由负责人决定切换；不能将旧备份直接覆盖当前库。
+
+### Outbox从首轮未版本化结构升级
+
+先停止使用该文件的旧版本worker/写入者，并对本地outbox做在线备份。新版Outbox初始化会自动执行事务性、幂等的原地升级；也可在未提供token、base_url或owner时显式执行：
+
+```powershell
+& '..\.venv\Scripts\python.exe' manage_records.py backup --db ./runtime/outbox.db --output ./runtime/outbox_before_upgrade.db
+& '..\.venv\Scripts\python.exe' -m robot_client --outbox ./runtime/outbox.db upgrade
+& '..\.venv\Scripts\python.exe' -m robot_client --outbox ./runtime/outbox.db upgrade
+```
+
+显式升级拒绝不存在的文件。旧`PRAGMA user_version=0`升级到1，只给targets追加`auth_blocked`（默认0）和`auth_error`两列；若旧任务已有blocked_auth，则对应分区恢复为暂停并标记legacy_blocked_auth。sessions/tasks原行不重写，因此正文、任务编号、序号高水位、服务器映射、封存/删除信息和回执保留。DDL、回填及版本号在同一个BEGIN IMMEDIATE事务中提交，失败整体回滚；版本高于1时拒绝运行，防止误降级。旧worker不理解新的暂停字段，升级后须统一使用新版客户端。
 
 ## 7. 配置对应位置
 

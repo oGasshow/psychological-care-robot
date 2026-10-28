@@ -9,7 +9,7 @@ import json
 import random
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -18,12 +18,45 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 # Schemas have no backend side effects when config/database is not imported.
-from .schemas import SessionCreate, MessageCreate, SessionClose, utc
+from .schemas import SessionCreate, MessageCreate, SessionClose, utc, validate_body
+from .errors import OutboxError
 
-class OutboxError(Exception):
-    def __init__(self, code):
-        self.code = code
-        super().__init__(code)
+SCHEMA_VERSION = 1
+
+def upgrade_schema(db):
+    """Run under BEGIN IMMEDIATE: transactional, additive v0 -> v1 upgrade."""
+    version = db.execute('PRAGMA user_version').fetchone()[0]
+    if version > SCHEMA_VERSION:
+        raise OutboxError('unsupported_outbox_schema')
+    for statement in (
+        '''CREATE TABLE IF NOT EXISTS targets (
+          base TEXT NOT NULL, owner INTEGER NOT NULL, PRIMARY KEY(base,owner))''',
+        '''CREATE TABLE IF NOT EXISTS sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, base TEXT NOT NULL, owner INTEGER NOT NULL,
+          external TEXT NOT NULL, source TEXT NOT NULL, create_hash TEXT,
+          next_sequence INTEGER NOT NULL DEFAULT 1, server_id INTEGER,
+          state TEXT NOT NULL DEFAULT 'open', last_sequence INTEGER, close_hash TEXT,
+          UNIQUE(base,owner,source,external), FOREIGN KEY(base,owner) REFERENCES targets(base,owner))''',
+        '''CREATE TABLE IF NOT EXISTS tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, session INTEGER NOT NULL REFERENCES sessions(id),
+          kind TEXT NOT NULL, stable_id TEXT NOT NULL, sequence INTEGER,
+          payload TEXT, digest TEXT, state TEXT NOT NULL DEFAULT 'pending',
+          attempts INTEGER NOT NULL DEFAULT 0, transient_count INTEGER NOT NULL DEFAULT 0,
+          next_at REAL NOT NULL DEFAULT 0, last_error TEXT, receipt TEXT,
+          UNIQUE(session,kind,stable_id))''',
+    ):
+        db.execute(statement)
+    columns = {row[1] for row in db.execute('PRAGMA table_info(targets)')}
+    if 'auth_blocked' not in columns:
+        db.execute('ALTER TABLE targets ADD COLUMN auth_blocked INTEGER NOT NULL DEFAULT 0')
+    if 'auth_error' not in columns:
+        db.execute('ALTER TABLE targets ADD COLUMN auth_error TEXT')
+    if version < SCHEMA_VERSION:
+        # Preserve legacy tasks verbatim; infer the partition barrier from old failures.
+        db.execute("""UPDATE targets SET auth_blocked=1,auth_error='legacy_blocked_auth'
+          WHERE EXISTS (SELECT 1 FROM sessions s JOIN tasks t ON s.id=t.session
+            WHERE s.base=targets.base AND s.owner=targets.owner AND t.state='blocked_auth')""")
+        db.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
 
 def canonical(data):
     return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
@@ -79,29 +112,14 @@ class Outbox:
         self.capacity = capacity
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
+            with self.write() as db:
+                upgrade_schema(db)
             with self.db() as db:
-                db.executescript('''
-                CREATE TABLE IF NOT EXISTS targets (
-                  base TEXT NOT NULL, owner INTEGER NOT NULL, PRIMARY KEY(base,owner));
-                CREATE TABLE IF NOT EXISTS sessions (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT, base TEXT NOT NULL, owner INTEGER NOT NULL,
-                  external TEXT NOT NULL, source TEXT NOT NULL, create_hash TEXT,
-                  next_sequence INTEGER NOT NULL DEFAULT 1, server_id INTEGER,
-                  state TEXT NOT NULL DEFAULT 'open', last_sequence INTEGER, close_hash TEXT,
-                  UNIQUE(base,owner,source,external), FOREIGN KEY(base,owner) REFERENCES targets(base,owner));
-                CREATE TABLE IF NOT EXISTS tasks (
-                  id INTEGER PRIMARY KEY AUTOINCREMENT, session INTEGER NOT NULL REFERENCES sessions(id),
-                  kind TEXT NOT NULL, stable_id TEXT NOT NULL, sequence INTEGER,
-                  payload TEXT, digest TEXT, state TEXT NOT NULL DEFAULT 'pending',
-                  attempts INTEGER NOT NULL DEFAULT 0, transient_count INTEGER NOT NULL DEFAULT 0,
-                  next_at REAL NOT NULL DEFAULT 0, last_error TEXT, receipt TEXT,
-                  UNIQUE(session,kind,stable_id));
-                ''')
                 exists = db.execute('SELECT 1 FROM targets WHERE base=? AND owner=?', (self.base, self.owner)).fetchone()
                 if not exists:
                     if transport is None or normalize_base(transport.base_url) != self.base or verified_owner(transport) != self.owner:
                         raise OutboxError('identity_unverified')
-                    db.execute('INSERT OR IGNORE INTO targets VALUES (?,?)', (self.base, self.owner))
+                    db.execute('INSERT OR IGNORE INTO targets(base,owner) VALUES (?,?)', (self.base, self.owner))
         except sqlite3.Error:
             raise OutboxError('local_storage_error') from None
 
@@ -129,6 +147,36 @@ class Outbox:
         except sqlite3.Error:
             raise OutboxError('local_storage_error') from None
 
+    @staticmethod
+    def upgrade(path):
+        """Explicit offline upgrade; refuse to silently create an absent old file."""
+        path = Path(path).resolve()
+        if not path.is_file():
+            raise OutboxError('outbox_not_found')
+        try:
+            with closing(sqlite3.connect(path.as_uri() + '?mode=rw', uri=True, timeout=2)) as db:
+                with db:
+                    db.execute('PRAGMA foreign_keys=ON')
+                    db.execute('BEGIN IMMEDIATE')
+                    upgrade_schema(db)
+        except sqlite3.Error:
+            raise OutboxError('local_storage_error') from None
+        return SCHEMA_VERSION
+
+    def _partition(self, db):
+        return db.execute('SELECT auth_blocked,auth_error FROM targets WHERE base=? AND owner=?',
+                          (self.base, self.owner)).fetchone()
+
+    def partition_status(self):
+        with self.db() as db:
+            row = self._partition(db)
+            return dict(auth_blocked=bool(row['auth_blocked']), auth_error=row['auth_error'],
+                        schema_version=db.execute('PRAGMA user_version').fetchone()[0])
+
+    def _new_task_state(self, db):
+        row = self._partition(db)
+        return ('blocked_auth', row['auth_error']) if row['auth_blocked'] else ('pending', None)
+
     def session(self, db, external):
         row = db.execute('SELECT * FROM sessions WHERE base=? AND owner=? AND source=? AND external=?',
                          (self.base, self.owner, 'doubao_realtime', external)).fetchone()
@@ -143,7 +191,7 @@ class Outbox:
             raise OutboxError('queue_full')
 
     def create_session(self, body):
-        data = SessionCreate.model_validate(body).model_dump()
+        data = validate_body(SessionCreate, body).model_dump()
         digest = fingerprint(data)
         with self.write() as db:
             row = db.execute('SELECT * FROM sessions WHERE base=? AND owner=? AND source=? AND external=?',
@@ -157,8 +205,8 @@ class Outbox:
             self.room(db)
             sid = db.execute('INSERT INTO sessions(base,owner,external,source,create_hash) VALUES (?,?,?,?,?)',
                              (self.base, self.owner, data['external_session_id'], data['source'], digest)).lastrowid
-            db.execute("INSERT INTO tasks(session,kind,stable_id,payload,digest) VALUES (?,'session',?,?,?)",
-                       (sid, data['external_session_id'], canonical(data), digest))
+            db.execute("INSERT INTO tasks(session,kind,stable_id,payload,digest,state,last_error) VALUES (?,'session',?,?,?,?,?)",
+                       (sid, data['external_session_id'], canonical(data), digest, *self._new_task_state(db)))
         return sid
 
     def enqueue(self, external, event):
@@ -170,7 +218,7 @@ class Outbox:
             old = db.execute("SELECT * FROM tasks WHERE session=? AND kind='message' AND stable_id=?",
                              (row['id'], event.get('external_message_id'))).fetchone()
             sequence = old['sequence'] if old else row['next_sequence']
-            data = MessageCreate.model_validate(dict(event, sequence_no=sequence)).model_dump()
+            data = validate_body(MessageCreate, dict(event, sequence_no=sequence)).model_dump()
             digest = fingerprint(data)
             if old:
                 if old['digest'] != digest:
@@ -179,8 +227,8 @@ class Outbox:
             if row['state'] != 'open':
                 raise OutboxError('session_sealed')
             self.room(db)
-            db.execute("INSERT INTO tasks(session,kind,stable_id,sequence,payload,digest) VALUES (?,'message',?,?,?,?)",
-                       (row['id'], data['external_message_id'], sequence, canonical(data), digest))
+            db.execute("INSERT INTO tasks(session,kind,stable_id,sequence,payload,digest,state,last_error) VALUES (?,'message',?,?,?,?,?,?)",
+                       (row['id'], data['external_message_id'], sequence, canonical(data), digest, *self._new_task_state(db)))
             db.execute('UPDATE sessions SET next_sequence=? WHERE id=?', (sequence + 1, row['id']))
         return sequence
 
@@ -191,7 +239,7 @@ class Outbox:
     def close_session(self, external, ended_at):
         with self.write() as db:
             row = self.session(db, external)
-            data = SessionClose(ended_at=ended_at, last_sequence_no=row['next_sequence'] - 1).model_dump()
+            data = validate_body(SessionClose, dict(ended_at=ended_at, last_sequence_no=row['next_sequence'] - 1)).model_dump()
             digest = fingerprint(data)
             if row['state'] == 'sealed':
                 if row['close_hash'] != digest:
@@ -200,8 +248,8 @@ class Outbox:
             self.room(db)
             db.execute("UPDATE sessions SET state='sealed',last_sequence=?,close_hash=? WHERE id=?",
                        (data['last_sequence_no'], digest, row['id']))
-            db.execute("INSERT INTO tasks(session,kind,stable_id,payload,digest) VALUES (?,'close',?,?,?)",
-                       (row['id'], external, canonical(data), digest))
+            db.execute("INSERT INTO tasks(session,kind,stable_id,payload,digest,state,last_error) VALUES (?,'close',?,?,?,?,?)",
+                       (row['id'], external, canonical(data), digest, *self._new_task_state(db)))
         return data['last_sequence_no']
 
     def _purge(self, db, sid):
@@ -219,13 +267,17 @@ class Outbox:
         # Do not expose stored message bodies or credentials through default status.
         with self.db() as db:
             return [dict(r) for r in db.execute('''SELECT t.id,s.external,t.kind,t.sequence,t.state,
-              t.attempts,t.transient_count,t.next_at,t.last_error,t.receipt,s.server_id,s.next_sequence,s.state AS local_state
-              FROM tasks t JOIN sessions s ON s.id=t.session WHERE s.base=? AND s.owner=? ORDER BY t.id''', (self.base, self.owner))]
+              t.attempts,t.transient_count,t.next_at,t.last_error,t.receipt,s.server_id,s.next_sequence,s.state AS local_state,
+              p.auth_blocked AS partition_auth_blocked,p.auth_error AS partition_auth_error
+              FROM tasks t JOIN sessions s ON s.id=t.session JOIN targets p ON p.base=s.base AND p.owner=s.owner
+              WHERE s.base=? AND s.owner=? ORDER BY t.id''', (self.base, self.owner))]
 
     def resume(self, *, include_dead=False):
         # Explicit operator action, never silently rewrites immutable payloads/IDs.
         states = ['blocked_auth', 'paused_retry'] + (['dead_letter'] if include_dead else [])
         with self.write() as db:
+            db.execute('UPDATE targets SET auth_blocked=0,auth_error=NULL WHERE base=? AND owner=?',
+                       (self.base, self.owner))
             db.execute(f'''UPDATE tasks SET state='pending',transient_count=0,next_at=0
               WHERE state IN ({','.join('?' for _ in states)}) AND payload IS NOT NULL
               AND session IN (SELECT id FROM sessions WHERE base=? AND owner=? AND state!='deleted')''',
@@ -284,6 +336,8 @@ class Worker:
     def _set_failure(self, task, state, code, next_at=0, transient=0):
         with self.outbox.write() as db:
             if state == 'blocked_auth':
+                db.execute('UPDATE targets SET auth_blocked=1,auth_error=? WHERE base=? AND owner=?',
+                           (code, self.outbox.base, self.outbox.owner))
                 db.execute("""UPDATE tasks SET state='blocked_auth',last_error=? WHERE state IN ('pending','sending','retry_wait','paused_retry')
                   AND session IN (SELECT id FROM sessions WHERE base=? AND owner=? AND state!='deleted')""",
                            (code, self.outbox.base, self.outbox.owner))
@@ -301,6 +355,8 @@ class Worker:
         box = self.outbox
         with box.lease():
             with box.write() as db:
+                if box._partition(db)['auth_blocked']:
+                    return False
                 db.execute("""UPDATE tasks SET state='pending' WHERE state='sending'
                   AND session IN (SELECT id FROM sessions WHERE base=? AND owner=?)""", (box.base, box.owner))
                 task = db.execute("""SELECT t.*,s.server_id,s.external FROM tasks t JOIN sessions s ON s.id=t.session

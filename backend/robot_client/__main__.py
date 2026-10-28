@@ -2,11 +2,16 @@
 import argparse
 import json
 import os
+import sys
 import threading
 from pathlib import Path
+import httpx
+from pydantic import ValidationError
 from .outbox import Outbox, Transport, Worker, verified_owner
+from .errors import InputValidationError, OutboxError
+from .schemas import validation_details
 
-def main():
+def run():
     p = argparse.ArgumentParser(description='Robot text outbox; final events only')
     p.add_argument('--outbox', default=os.getenv('ROBOT_OUTBOX_PATH'))
     p.add_argument('--base-url', default=os.getenv('ROBOT_BASE_URL'))
@@ -14,6 +19,7 @@ def main():
     p.add_argument('--capacity', type=int, default=10000)
     sub = p.add_subparsers(dest='action', required=True)
     sub.add_parser('bind')
+    sub.add_parser('upgrade')
     replay = sub.add_parser('replay')
     replay.add_argument('file', type=Path)
     sub.add_parser('work').add_argument('--once', action='store_true')
@@ -21,6 +27,11 @@ def main():
     sub.add_parser('resume').add_argument('--include-dead', action='store_true')
     sub.add_parser('purge').add_argument('external_session_id')
     args = p.parse_args()
+    if args.action == 'upgrade':
+        if not args.outbox:
+            p.error('Set ROBOT_OUTBOX_PATH or supply --outbox')
+        print(json.dumps({'schema_version': Outbox.upgrade(args.outbox), 'upgraded': True}))
+        return
     if not args.outbox or not args.base_url:
         p.error('Set ROBOT_OUTBOX_PATH and ROBOT_BASE_URL or supply options')
     transport = None
@@ -79,5 +90,24 @@ def main():
         if transport:
             transport.close()
 
+def main():
+    try:
+        run()
+        return 0
+    except InputValidationError as exc:
+        error = {'code': exc.code, 'details': exc.details}
+    except ValidationError as exc:
+        error = {'code': 'validation_error', 'details': validation_details(exc)}
+    except OutboxError as exc:
+        error = {'code': exc.code}
+    except json.JSONDecodeError:
+        error = {'code': 'invalid_json'}
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+        error = {'code': 'invalid_input'}
+    except (OSError, httpx.HTTPError):
+        error = {'code': 'io_error'}
+    print(json.dumps({'error': error}, ensure_ascii=False), file=sys.stderr)
+    return 1
+
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

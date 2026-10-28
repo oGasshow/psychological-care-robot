@@ -164,8 +164,8 @@ def query_integer(value):
         raise ValueError('Integer required')
     return int(value)
 
-PageLimit = Annotated[int, BeforeValidator(query_integer), Field(ge=1, le=100)]
-ResourceID = Annotated[int, BeforeValidator(query_integer), Field(ge=1)]
+PageLimit = Annotated[int, Field(ge=1, le=100), BeforeValidator(query_integer)]
+ResourceID = Annotated[int, Field(ge=1, le=9223372036854775807), BeforeValidator(query_integer)]
 
 def encode_cursor(uid, scope, snapshot, after):
     payload = json.dumps([1, uid, scope, snapshot, after], separators=(',', ':')).encode()

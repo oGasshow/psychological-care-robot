@@ -2,7 +2,8 @@
 import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, BeforeValidator, model_validator, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, BeforeValidator, model_validator, field_validator, ValidationError
+from .errors import InputValidationError
 
 ID = Annotated[str, Field(strict=True, min_length=1, max_length=128, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$')]
 Seq = Annotated[StrictInt, Field(ge=1, le=2147483647)]
@@ -22,7 +23,7 @@ def utc(value):
 UTCText = Annotated[str, BeforeValidator(utc), Field(json_schema_extra={'format': 'date-time'})]
 
 class StrictBody(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', hide_input_in_errors=True)
 
 class SessionCreate(StrictBody):
     source: Literal['doubao_realtime']
@@ -61,3 +62,16 @@ class MessageCreate(StrictBody):
 class SessionClose(StrictBody):
     ended_at: UTCText
     last_sequence_no: LastSeq
+
+def validation_details(exc):
+    """Whitelist field locations and error types, including hostile extra keys."""
+    fields = set(SessionCreate.model_fields) | set(MessageCreate.model_fields) | set(SessionClose.model_fields)
+    return [{'loc': [part if type(part) is int or part in fields else '*' for part in e['loc']],
+             'type': e['type']}
+            for e in exc.errors(include_input=False, include_context=False, include_url=False)]
+
+def validate_body(model, data):
+    try:
+        return model.model_validate(data)
+    except ValidationError as exc:
+        raise InputValidationError(validation_details(exc)) from None
