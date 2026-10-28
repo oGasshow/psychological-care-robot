@@ -1,5 +1,6 @@
 """Additive upgrade, SQLite online backup, restore to a NEW destination, OpenAPI."""
 import argparse
+from contextlib import closing
 import json
 import os
 import sqlite3
@@ -13,8 +14,8 @@ def backup(source, destination):
         raise ValueError('Destination exists; choose a new path')
     destination.parent.mkdir(parents=True, exist_ok=True)
     # URI read-only mode prevents an incorrect source path from creating a database.
-    with sqlite3.connect(source.as_uri() + '?mode=ro', uri=True) as src:
-        with sqlite3.connect(destination) as dst:
+    with closing(sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)) as src:
+        with closing(sqlite3.connect(destination)) as dst:
             src.backup(dst)
             if dst.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or dst.execute('PRAGMA foreign_key_check').fetchall():
                 raise ValueError('Backup integrity check failed')
@@ -38,7 +39,7 @@ def main():
         print(json.dumps({'operation': args.action, 'integrity_check': 'ok'}))
         return
     if args.action == 'check':
-        with sqlite3.connect(args.db.resolve().as_uri() + '?mode=ro', uri=True) as db:
+        with closing(sqlite3.connect(args.db.resolve().as_uri() + '?mode=ro', uri=True)) as db:
             result = db.execute('PRAGMA integrity_check').fetchone()[0]
             fks = db.execute('PRAGMA foreign_key_check').fetchall()
             tables = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name!='sqlite_sequence'")]

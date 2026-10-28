@@ -4,6 +4,7 @@ Only synthetic data and sanitized results are exported. Runtime DBs/tokens are
 destroyed after the demo. This script does not visit any model endpoint.
 """
 import argparse
+from contextlib import closing
 from importlib.metadata import version
 import json
 import os
@@ -80,7 +81,7 @@ def main():
                     messages=client.get(f'/api/robot-records/sessions/{sid}/messages',headers=headers).json()
                     assert len(messages['items'])==3 and sessions['items'][0]['is_complete'] is True
                     assert messages['items'][1]['playback_status']=='unknown' and messages['items'][2]['text_status']=='canceled'
-                    with sqlite3.connect(db) as connection:
+                    with closing(sqlite3.connect(db)) as connection:
                         counts={t:connection.execute('SELECT count(*) FROM '+t).fetchone()[0] for t in ('users','robot_record_sessions','robot_record_messages','messages','diaries','assessment_records')}
                     traces.append({'sessions':sessions,'messages':messages,'row_counts':counts})
                     (args.output/'openapi.json').write_text(json.dumps(client.get('/openapi.json').json(),ensure_ascii=False,indent=2),encoding='utf-8')
