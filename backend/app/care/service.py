@@ -59,11 +59,37 @@ def effective(db,row):
                 effective_content=correction.content if correction else row.content,input_revision=revision,
                 corrected_at=correction.created_at if correction else None)
 
-def invalidate(db,rid):
-    db.query(AnalysisJob).filter_by(record_id=rid).update({'state':'invalidated','execution_token':None,'lease_until':None,'input_snapshot':None})
-    db.query(SupportPolicy).filter_by(record_id=rid).update({'is_current':0})
+def invalidate(db,rid,except_job_id=None):
+    jobs=db.query(AnalysisJob).filter_by(record_id=rid)
+    policies=db.query(SupportPolicy).filter_by(record_id=rid)
+    if except_job_id is not None:
+        jobs=jobs.filter(AnalysisJob.id!=except_job_id)
+        policies=policies.filter(SupportPolicy.job_id!=except_job_id)
+    jobs.update({'state':'invalidated','execution_token':None,'lease_until':None,'input_snapshot':None,'next_retry_at':None})
+    policies.update({'is_current':0})
+
+def configuration_identity(config):
+    return tuple(config[key] for key in ('engine_kind','engine_version','config_version'))
+
+def reusable_result(job,result,policy):
+    """Only a complete, atomically saved success is an eligible cache entry."""
+    if result is None or policy is None or job.analyzed_at is None:
+        return False
+    if (policy.owner,policy.session_id,policy.record_id)!=(job.owner,job.session_id,job.record_id):
+        return False
+    status=result.data.get('classification_status')
+    label=result.data.get('emotion_label')
+    return ((status=='classified' and label in ('positive','neutral','negative'))
+            or (status=='unable_to_determine' and label is None))
 
 def enqueue(db,row,uid,configuration=None):
+    session=db.get(RecordSession,row.recording_session_id)
+    if session is None or session.user_id!=uid:
+        raise CareError(404,'not_found')
+    if session.state=='deleted':
+        raise CareError(410,'session_deleted')
+    if db.get(RecordMessage,row.id) is None:
+        missing(db,'record',row.id,uid)
     if exclusion(row):
         raise CareError(422,'excluded_input')
     active,core,config=configuration or engine_configuration()
@@ -74,7 +100,34 @@ def enqueue(db,row,uid,configuration=None):
     if existing:
         if existing.input_snapshot_hash!=digest(input_data['effective_content']):
             raise CareError(409,'input_version_conflict')
-        return existing,True
+        if existing.state!='invalidated':
+            # Repeated triggers must not cancel this task's current lease/attempt.
+            invalidate(db,row.id,except_job_id=existing.id)
+            return existing,True
+        result=db.query(AnalysisResult).filter_by(job_id=existing.id).first()
+        policy=db.query(SupportPolicy).filter_by(job_id=existing.id).first()
+        cached=reusable_result(existing,result,policy)
+        invalidate(db,row.id)
+        existing.error_code=None
+        existing.next_retry_at=None
+        existing.execution_token=None
+        existing.lease_until=None
+        if cached:
+            existing.state='succeeded'
+            policy.is_current=1
+            # Reusing analysis is not a new delivery: do not renew its validity.
+            return existing,True
+        # The unique task identity is retained; a new execution owns a new token.
+        # Attempts are bounded within this activation, not across config changes.
+        if result is not None:
+            db.delete(result)
+        existing.state='pending'
+        existing.attempt=0
+        existing.analyzed_at=None
+        existing.input_snapshot=input_data['effective_content']
+        existing.config_summary=config['config_summary']
+        db.flush()
+        return existing,False
     invalidate(db,row.id)
     job=AnalysisJob(**key,session_id=row.recording_session_id,input_snapshot_hash=digest(input_data['effective_content']),
         input_snapshot=input_data['effective_content'],config_summary=config['config_summary'],state='pending',attempt=0,created_at=now())
@@ -87,7 +140,12 @@ def current(db,job):
     session=db.get(RecordSession,job.session_id)
     if row is None or session is None or session.state=='deleted' or exclusion(row):
         return False
-    return effective(db,row)['input_revision']==job.input_revision and job.state!='invalidated'
+    config=engine_configuration()[2]
+    input_data=effective(db,row)
+    return (session.user_id==job.owner and input_data['input_revision']==job.input_revision
+            and job.input_snapshot_hash==digest(input_data['effective_content'])
+            and job.state!='invalidated'
+            and (job.engine_kind,job.engine_version,job.config_version)==configuration_identity(config))
 
 def job_view(db,job):
     row=db.get(RecordMessage,job.record_id)

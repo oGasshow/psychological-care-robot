@@ -21,6 +21,230 @@ PROJECT=BACKEND.parent
 sys.path.insert(0,str(BACKEND))
 NO_WINDOW=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
 
+class ProcessIdentityError(Exception):
+    """Identity could not be proved; never use this as permission to signal."""
+
+def write_json(path,value):
+    temporary=path.with_suffix(path.suffix+'.tmp')
+    temporary.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf-8')
+    temporary.replace(path)
+
+def windows_argv(command_line):
+    import ctypes
+    from ctypes import wintypes
+    function=ctypes.windll.shell32.CommandLineToArgvW
+    function.argtypes=[wintypes.LPCWSTR,ctypes.POINTER(ctypes.c_int)]
+    function.restype=ctypes.POINTER(wintypes.LPWSTR)
+    count=ctypes.c_int()
+    pointer=function(command_line,ctypes.byref(count))
+    if not pointer:
+        raise ProcessIdentityError('argv_unreadable')
+    try:
+        return [pointer[index] for index in range(count.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree.argtypes=[ctypes.c_void_p]
+        ctypes.windll.kernel32.LocalFree(pointer)
+
+def windows_console_host(argv):
+    import ctypes
+    import ntpath
+    buffer=ctypes.create_unicode_buffer(32768)
+    if not ctypes.windll.kernel32.GetSystemDirectoryW(buffer,len(buffer)):
+        return False
+    executable=argv[0].removeprefix('\\??\\')
+    expected=ntpath.join(buffer.value,'conhost.exe')
+    return (ntpath.normcase(executable)==ntpath.normcase(expected) and len(argv)==2 and
+            argv[1].startswith('0x') and all(value in '0123456789abcdefABCDEF' for value in argv[1][2:]))
+
+def windows_handle(pid,access):
+    import ctypes
+    from ctypes import wintypes
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    kernel.OpenProcess.argtypes=[wintypes.DWORD,wintypes.BOOL,wintypes.DWORD]
+    kernel.OpenProcess.restype=wintypes.HANDLE
+    kernel.CloseHandle.argtypes=[wintypes.HANDLE]
+    kernel.GetProcessTimes.argtypes=[wintypes.HANDLE,*([ctypes.POINTER(wintypes.FILETIME)]*4)]
+    kernel.TerminateProcess.argtypes=[wintypes.HANDLE,wintypes.UINT]
+    kernel.WaitForSingleObject.argtypes=[wintypes.HANDLE,wintypes.DWORD]
+    handle=kernel.OpenProcess(access,False,pid)
+    if not handle:
+        if ctypes.get_last_error()==87:
+            return None,None,None
+        raise ProcessIdentityError('process_handle_unreadable')
+    creation,exit_time,kernel_time,user_time=(wintypes.FILETIME() for _ in range(4))
+    if not kernel.GetProcessTimes(handle,ctypes.byref(creation),ctypes.byref(exit_time),
+                                  ctypes.byref(kernel_time),ctypes.byref(user_time)):
+        kernel.CloseHandle(handle)
+        raise ProcessIdentityError('creation_identity_unreadable')
+    return kernel,handle,(creation.dwHighDateTime<<32)|creation.dwLowDateTime
+
+def windows_query(pid):
+    script=f'''$p=Get-CimInstance Win32_Process -Filter "ProcessId={pid}" -ErrorAction Stop; if($p){{[ordered]@{{pid=[int]$p.ProcessId; parent_pid=[int]$p.ParentProcessId; command_line=$p.CommandLine; creation_ticks=[string]$p.CreationDate.ToUniversalTime().ToFileTimeUtc()}}|ConvertTo-Json -Compress}}'''
+    result=subprocess.run(['powershell','-NoProfile','-Command',
+        '[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); '+script],
+        capture_output=True,text=True,encoding='utf-8',errors='strict',creationflags=NO_WINDOW,timeout=10)
+    if result.returncode:
+        raise ProcessIdentityError('process_query_failed')
+    if not result.stdout.strip():
+        return None
+    try:
+        value=json.loads(result.stdout)
+        if value['pid']!=pid or not value['command_line']:
+            raise ValueError()
+        return value
+    except (ValueError,KeyError,TypeError):
+        raise ProcessIdentityError('process_query_invalid') from None
+
+def process_identity(pid):
+    """Read a complete identity, or fail closed. No source text or secrets escape."""
+    if type(pid) is not int or pid<1:
+        raise ProcessIdentityError('invalid_process_id')
+    try:
+        if os.name=='nt':
+            kernel,handle,created=windows_handle(pid,0x1000)
+            if handle is None:
+                return None
+            try:
+                data=windows_query(pid)
+                if data is None:
+                    return None
+                # CIM has microsecond precision; the handle retains exact 100ns ticks.
+                if int(data['creation_ticks'])//10!=created//10:
+                    raise ProcessIdentityError('creation_identity_changed')
+                return {'platform':'windows','pid':pid,'parent_pid':data['parent_pid'],
+                        'argv':windows_argv(data['command_line']),'creation_ticks':str(created)}
+            finally:
+                kernel.CloseHandle(handle)
+        proc=Path(f'/proc/{pid}')
+        raw=(proc/'cmdline').read_bytes()
+        argv=[part.decode('utf-8') for part in raw.rstrip(b'\0').split(b'\0')]
+        stat=(proc/'stat').read_text(encoding='utf-8').rsplit(')',1)[1].split()
+        environment={}
+        for entry in (proc/'environ').read_bytes().split(b'\0'):
+            key,separator,value=entry.partition(b'=')
+            if separator and key in (b'ROBOT_CARE_RUNTIME_ID',b'ROBOT_CARE_RUNTIME_ROOT',b'ROBOT_CARE_PROCESS_ID'):
+                environment[key.decode()]=value.decode('utf-8')
+        if not argv or not argv[0] or len(stat)<20:
+            raise ProcessIdentityError('process_identity_invalid')
+        return {'platform':'linux','pid':pid,'parent_pid':int(stat[1]),'argv':argv,
+                'start_ticks':stat[19],'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                'uid':proc.stat().st_uid,'cwd':str((proc/'cwd').resolve(strict=True)),
+                'runtime_id':environment.get('ROBOT_CARE_RUNTIME_ID'),
+                'runtime_root':environment.get('ROBOT_CARE_RUNTIME_ROOT'),
+                'process_id':environment.get('ROBOT_CARE_PROCESS_ID'),'state':stat[0]}
+    except (FileNotFoundError,ProcessLookupError):
+        return None
+    except ProcessIdentityError:
+        raise
+    except (OSError,UnicodeError,ValueError,KeyError,IndexError,subprocess.SubprocessError):
+        raise ProcessIdentityError('process_identity_unreadable') from None
+
+def identity_key(value):
+    keys=('platform','pid','argv','creation_ticks') if value.get('platform')=='windows' else (
+        'platform','pid','argv','start_ticks','boot_id','uid','cwd','runtime_id','runtime_root','process_id')
+    return {key:value.get(key) for key in keys}
+
+def child_pids(pid):
+    try:
+        if os.name=='nt':
+            script=f'@(Get-CimInstance Win32_Process -Filter "ParentProcessId={pid}" -ErrorAction Stop | ForEach-Object {{[int]$_.ProcessId}})|ConvertTo-Json -Compress'
+            result=subprocess.run(['powershell','-NoProfile','-Command',script],capture_output=True,
+                text=True,encoding='utf-8',errors='strict',creationflags=NO_WINDOW,timeout=10)
+            if result.returncode:
+                raise ProcessIdentityError('children_unreadable')
+            value=json.loads(result.stdout) if result.stdout.strip() else []
+            return value if isinstance(value,list) else [value]
+        return [int(value) for value in Path(f'/proc/{pid}/task/{pid}/children').read_text().split()]
+    except FileNotFoundError:
+        return []
+    except (OSError,ValueError,subprocess.SubprocessError):
+        raise ProcessIdentityError('children_unreadable') from None
+
+def capture_process(record,root,cfg):
+    identity=process_identity(record['pid'])
+    if identity is None or identity['argv']!=record['command']:
+        raise ProcessIdentityError('launch_identity_not_verified')
+    if identity['platform']=='linux' and (identity['runtime_id']!=cfg['runtime_id'] or
+            identity['runtime_root']!=str(root) or identity['process_id']!=record['process_id'] or
+            identity['cwd']!=record['cwd']):
+        raise ProcessIdentityError('launch_runtime_not_verified')
+    record['identity']=identity
+    record['identity_schema']=1
+
+def capture_children(record,root,cfg):
+    """Persist only individually verified descendants; never save a blind tree."""
+    if identity_key(process_identity(record['pid']) or {})!=identity_key(record['identity']):
+        raise ProcessIdentityError('launch_identity_changed')
+    children=[]
+    pending=[record['identity']]
+    seen={record['pid']}
+    while pending:
+        parent=pending.pop()
+        for pid in child_pids(parent['pid']):
+            if pid in seen or len(seen)>=64:
+                raise ProcessIdentityError('child_identity_invalid')
+            seen.add(pid)
+            child=process_identity(pid)
+            if child is None:
+                continue
+            valid=child['parent_pid']==parent['pid']
+            if child['platform']=='linux':
+                valid=valid and int(child['start_ticks'])>=int(parent['start_ticks']) and (
+                    child['runtime_id']==cfg['runtime_id'] and child['runtime_root']==str(root) and
+                    child['process_id']==record['process_id'])
+            else:
+                # Windows venv redirectors create a real interpreter with the same args.
+                allowed={str(Path(value).resolve()).lower() for value in (
+                    record['command'][0],sys.executable,getattr(sys,'_base_executable',sys.executable))}
+                interpreter=(str(Path(child['argv'][0]).resolve()).lower() in allowed and
+                             child['argv'][1:]==record['command'][1:])
+                valid=valid and int(child['creation_ticks'])>=int(parent['creation_ticks']) and (
+                    interpreter or windows_console_host(child['argv']))
+            if not valid:
+                raise ProcessIdentityError('child_ownership_unverified')
+            children.append(child)
+            pending.append(child)
+    record['children']=children
+
+def signal_verified(expected):
+    """Bind the exact process instance before the final check and the signal."""
+    pid=expected['pid']
+    if os.name=='nt':
+        kernel,handle,created=windows_handle(pid,0x1000|0x00100000|0x0001)
+        if handle is None:
+            return 'already_gone'
+        try:
+            current=process_identity(pid)
+            if str(created)!=expected['creation_ticks'] or current is None or identity_key(current)!=identity_key(expected):
+                return 'identity_changed'
+            if not kernel.TerminateProcess(handle,0):
+                raise ProcessIdentityError('termination_failed')
+            return 'stopped' if kernel.WaitForSingleObject(handle,5000)==0 else 'stop_not_confirmed'
+        finally:
+            kernel.CloseHandle(handle)
+    if not hasattr(os,'pidfd_open') or not hasattr(signal,'pidfd_send_signal'):
+        raise ProcessIdentityError('instance_bound_signal_unavailable')
+    try:
+        descriptor=os.pidfd_open(pid,0)
+    except ProcessLookupError:
+        return 'already_gone'
+    except OSError:
+        raise ProcessIdentityError('instance_bound_signal_unavailable') from None
+    try:
+        current=process_identity(pid)
+        if current is None or identity_key(current)!=identity_key(expected):
+            return 'identity_changed'
+        signal.pidfd_send_signal(descriptor,signal.SIGTERM,None,0)
+        deadline=time.monotonic()+5
+        while time.monotonic()<deadline:
+            current=process_identity(pid)
+            if current is None or current.get('state')=='Z' or identity_key(current)!=identity_key(expected):
+                return 'stopped'
+            time.sleep(.05)
+        return 'stop_not_confirmed'
+    finally:
+        os.close(descriptor)
+
 def port():
     with socket.socket() as sock:
         sock.bind(('127.0.0.1',0))
@@ -31,7 +255,7 @@ def prepare(root):
     if root.exists() and any(root.iterdir()):
         raise ValueError('Choose a new empty dedicated demo directory')
     root.mkdir(parents=True,exist_ok=True)
-    cfg={'marker':'module236-synthetic-demo-v1','backend_port':port(),'frontend_port':port(),
+    cfg={'marker':'module236-synthetic-demo-v1','runtime_id':secrets.token_hex(24),'backend_port':port(),'frontend_port':port(),
          'database':str(root/'demo.db'),'fixture':str(root/'assessments.json'),'secret':secrets.token_urlsafe(48),
          'users':[{'username':'virtual_care_a','password':secrets.token_urlsafe(18)},
                   {'username':'virtual_care_b','password':secrets.token_urlsafe(18)}]}
@@ -59,6 +283,10 @@ def wait_backend(base,proc):
 def start(root,cfg,frontend=True):
     if (root/'pids.json').exists():
         raise ValueError('Demo already has process records; stop it first')
+    root=root.resolve()
+    if not cfg.get('runtime_id'):
+        cfg['runtime_id']=secrets.token_hex(24)
+        write_json(root/'access.json',cfg)
     fresh=not Path(cfg['database']).exists()
     fixture={'schema_version':'1.0','demo_only':True,'records':[]}
     if fresh:
@@ -68,18 +296,27 @@ def start(root,cfg,frontend=True):
     env=environment(root,cfg)
     procs=[]
     def launch(label,cmd,cwd,custom_env=None):
+        process_id=secrets.token_hex(24)
+        process_env=dict(custom_env or env,ROBOT_CARE_RUNTIME_ID=cfg['runtime_id'],
+                         ROBOT_CARE_RUNTIME_ROOT=str(root),ROBOT_CARE_PROCESS_ID=process_id)
         handle=open(root/(label+'.log'),'ab')
         try:
-            proc=subprocess.Popen(cmd,cwd=cwd,env=custom_env or env,stdout=handle,stderr=subprocess.STDOUT,creationflags=NO_WINDOW)
+            proc=subprocess.Popen(cmd,cwd=cwd,env=process_env,stdout=handle,stderr=subprocess.STDOUT,creationflags=NO_WINDOW)
         finally:
             handle.close()
-        procs.append({'label':label,'pid':proc.pid,'command':cmd})
-        (root/'pids.json').write_text(json.dumps(procs,indent=2),encoding='utf-8')
+        record={'label':label,'pid':proc.pid,'command':cmd,'cwd':str(cwd.resolve()),
+                'runtime_root':str(root),'runtime_id':cfg['runtime_id'],'process_id':process_id,'children':[]}
+        procs.append(record)
+        write_json(root/'pids.json',procs)
+        capture_process(record,root,cfg)
+        write_json(root/'pids.json',procs)
         return proc
     base=f'http://127.0.0.1:{cfg["backend_port"]}'
     try:
         backend=launch('backend',[sys.executable,'-m','uvicorn','app.main:app','--host','127.0.0.1','--port',str(cfg['backend_port']),'--log-level','warning'],BACKEND)
         wait_backend(base,backend)
+        capture_children(procs[0],root,cfg)
+        write_json(root/'pids.json',procs)
         if fresh:
             seed(base,cfg,fixture)
             Path(cfg['fixture']).write_text(json.dumps(fixture,ensure_ascii=False,indent=2),encoding='utf-8')
@@ -122,6 +359,9 @@ def start(root,cfg,frontend=True):
                     break
                 time.sleep(.05)
         (root/'access.json').write_text(json.dumps(cfg,ensure_ascii=False,indent=2),encoding='utf-8')
+        for record in procs:
+            capture_children(record,root,cfg)
+        write_json(root/'pids.json',procs)
         print(json.dumps({'started':True,'backend':base,'frontend':f'http://127.0.0.1:{cfg["frontend_port"]}/robot-care',
                           'runtime':str(root),'session_ids':cfg['session_ids'],'processes':[{'label':p['label'],'pid':p['pid']} for p in procs]}))
     except BaseException:
@@ -184,27 +424,59 @@ def seed(base,cfg,fixture):
 def stop(root,cfg):
     path=root/'pids.json'
     if not path.exists():
-        return
+        result={'stopped_recorded_demo_processes':True,'already_stopped':True,'results':[]}
+        print(json.dumps(result))
+        return result
     records=json.loads(path.read_text(encoding='utf-8'))
+    remaining=[]
+    results=[]
     for record in reversed(records):
-        pid=record['pid']
-        if os.name=='nt':
-            # Verify recorded process still carries this exact command before stopping.
-            escaped=str(pid)
-            result=subprocess.run(['powershell','-NoProfile','-Command',f'[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); (Get-CimInstance Win32_Process -Filter "ProcessId={escaped}").CommandLine'],capture_output=True,text=True,encoding='utf-8',errors='replace',creationflags=NO_WINDOW)
-            actual=result.stdout
-            if actual and all(part in actual for part in record['command'][1:]):
-                script=f'''$all=Get-CimInstance Win32_Process; $pending=[System.Collections.Generic.List[int]]::new(); $pending.Add({escaped}); for($i=0;$i -lt $pending.Count;$i++){{ foreach($p in $all){{if($p.ParentProcessId -eq $pending[$i]){{$pending.Add([int]$p.ProcessId)}}}}}}; for($i=$pending.Count-1;$i -ge 0;$i--){{Stop-Process -Id $pending[$i] -ErrorAction SilentlyContinue}}'''
-                subprocess.run(['powershell','-NoProfile','-Command',script],capture_output=True,creationflags=NO_WINDOW)
+        outcomes=[]
+        valid=(record.get('identity_schema')==1 and cfg.get('runtime_id') and
+               record.get('runtime_id')==cfg['runtime_id'] and record.get('runtime_root')==str(root.resolve()) and
+               isinstance(record.get('identity'),dict) and record['identity'].get('argv')==record.get('command'))
+        if not valid:
+            outcomes.append({'pid':record.get('pid'),'status':'not_stopped','reason':'ownership_record_unverified'})
         else:
-            try:
-                command=Path(f'/proc/{pid}/cmdline').read_bytes().replace(b'\0',b' ').decode()
-                if record['command'][1] in command:
-                    os.kill(pid,signal.SIGTERM)
-            except (FileNotFoundError,ProcessLookupError):
-                pass
-    path.rename(root/f'pids_stopped_{int(time.time())}.json')
-    print(json.dumps({'stopped_recorded_demo_processes':True}))
+            expected_processes=[*reversed(record.get('children',[])),record['identity']]
+            known={value['pid'] for value in expected_processes}
+            for expected in expected_processes:
+                outcome={'pid':expected['pid']}
+                try:
+                    current=process_identity(expected['pid'])
+                    if current is None:
+                        outcome['status']='already_gone'
+                    elif identity_key(current)!=identity_key(expected):
+                        outcome.update(status='not_stopped',reason='identity_mismatch')
+                    elif current.get('platform')=='linux' and (current.get('runtime_id')!=cfg['runtime_id'] or
+                            current.get('runtime_root')!=str(root.resolve()) or current.get('process_id')!=record.get('process_id')):
+                        outcome.update(status='not_stopped',reason='runtime_mismatch')
+                    elif any(pid not in known for pid in child_pids(expected['pid'])):
+                        outcome.update(status='not_stopped',reason='unrecorded_child')
+                    else:
+                        status=signal_verified(expected)
+                        outcome.update(status=status if status in ('stopped','already_gone') else 'not_stopped')
+                        if status not in ('stopped','already_gone'):
+                            outcome['reason']=status
+                except ProcessIdentityError as error:
+                    outcome.update(status='not_stopped',reason=str(error))
+                except (OSError,ValueError,KeyError,TypeError):
+                    outcome.update(status='not_stopped',reason='identity_operation_failed')
+                outcomes.append(outcome)
+        stopped=all(value['status'] in ('stopped','already_gone') for value in outcomes)
+        results.append({'label':record.get('label'),'complete':stopped,'processes':outcomes})
+        if not stopped:
+            record['last_stop_result']=outcomes
+            remaining.append(record)
+    result={'stopped_recorded_demo_processes':not remaining,'already_stopped':False,'results':results}
+    stamp=str(time.time_ns())
+    write_json(root/('stop_attempt_'+stamp+'.json'),result)
+    if remaining:
+        write_json(path,list(reversed(remaining)))
+    else:
+        path.rename(root/('pids_stopped_'+stamp+'.json'))
+    print(json.dumps(result))
+    return result
 
 def main():
     parser=argparse.ArgumentParser()
@@ -219,7 +491,10 @@ def main():
     cfg=json.loads((root/'access.json').read_text(encoding='utf-8'))
     if cfg.get('marker')!='module236-synthetic-demo-v1' or Path(cfg['database']).parent!=root:
         raise ValueError('invalid_demo_directory')
-    start(root,cfg,not args.no_frontend) if args.action=='start' else stop(root,cfg)
+    if args.action=='start':
+        start(root,cfg,not args.no_frontend)
+    elif not stop(root,cfg)['stopped_recorded_demo_processes']:
+        raise SystemExit(2)
 
 if __name__=='__main__':
     main()

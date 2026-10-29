@@ -113,8 +113,12 @@ try{
   await page.getByRole('link',{name:'打开专用打印页'}).click();await page.waitForURL('**/robot-care/report/print');await page.getByTestId('report-dto').waitFor();
   const before=evidence.api_statuses.filter(s=>s.path.endsWith('/reports/preview')).length;
   await page.evaluate(()=>{window.__carePrintInvoked=false;window.print=()=>{window.__carePrintInvoked=true;};});
+  const sourceRefresh=page.waitForResponse(res=>new URL(res.url()).pathname.endsWith('/reports/preview')&&res.request().method()==='POST');
   await page.getByRole('button',{name:'重新核验来源并打印 / 保存 PDF'}).click();
+  const latestReport=await (await sourceRefresh).json();
   await page.waitForFunction(()=>window.__carePrintInvoked===true);
+  assert(await page.getByTestId('report-dto').getAttribute('data-generated-at')===latestReport.generated_at,'PDF and saved DTO must share the latest generated_at');
+  await writeFile(path.join(output,'模拟陪伴报告.dto.json'),JSON.stringify(latestReport,null,2),'utf8');
   assert(evidence.api_statuses.filter(s=>s.path.endsWith('/reports/preview')).length>before,'Print must refresh DTO through HTTP');
   assert((await page.getByTestId('report-status').innerText()).includes('核验'),'Print revalidation visible');
   await shot('09_print_page_refreshed.png');
@@ -122,7 +126,7 @@ try{
   assert(!await page.getByRole('button',{name:'重新核验来源并打印 / 保存 PDF'}).isVisible(),'Print controls must be hidden');
   assert(await page.locator('.care-print-stamp').isVisible(),'Repeated print demo stamp');
   await page.pdf({path:path.join(output,'模拟陪伴报告.pdf'),format:'A4',printBackground:true,preferCSSPageSize:true,displayHeaderFooter:false});
-  record('browser_print_to_pdf',{file:'模拟陪伴报告.pdf',source_refreshed:true,controls_hidden:true,repeated_demo_footer:true});
+  record('browser_print_to_pdf',{file:'模拟陪伴报告.pdf',dto:'模拟陪伴报告.dto.json',generated_at:latestReport.generated_at,source_refreshed:true,controls_hidden:true,repeated_demo_footer:true});
   assert(evidence.console_error_count===0,'Browser page errors present');
   assert(evidence.external_request_count===0,'Unexpected external resource loaded');
   record('no_page_errors_or_external_input_loads');

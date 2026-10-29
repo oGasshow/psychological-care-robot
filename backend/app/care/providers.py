@@ -16,13 +16,41 @@ def blank(source,kind,status,reason):
         applicability_status='demo_only' if kind=='fixture' else 'unconfirmed',content_review_status='not_reviewed',
         review_reference=None,source_version=None)
 
+def fixture_failure(reason):
+    return {'items':[],'status':'query_failed','reason_code':reason}
+
+def valid_fixture_document(raw):
+    """Validate the document envelope before reading any record fields.
+
+    Record values such as completion, scores and versions are checked separately
+    so an invalid/incomplete owned record remains distinguishable from a broken
+    provider document. Unidentifiable records cannot safely be scoped to an owner.
+    """
+    if (not isinstance(raw,dict) or raw.get('demo_only') is not True
+            or raw.get('schema_version')!='1.0' or not isinstance(raw.get('records'),list)):
+        return False
+    for record in raw['records']:
+        if not isinstance(record,dict):
+            return False
+        owner=record.get('owner_user_id')
+        identifier=record.get('source_record_id')
+        if (type(owner) is not int or not 1<=owner<=9223372036854775807
+                or not isinstance(identifier,str) or not identifier.startswith('fixture:')
+                or len(identifier)<=len('fixture:') or len(identifier)>140):
+            return False
+    return True
+
 def fixture(owner):
     try:
-        raw=json.loads(Path(os.environ['ROBOT_CARE_FIXTURE_FILE']).read_text(encoding='utf-8'))
-        if raw.get('demo_only') is not True or raw.get('schema_version')!='1.0' or not isinstance(raw.get('records'),list):
-            raise ValueError()
-    except (OSError,ValueError,TypeError,KeyError):
-        return {'items':[],'status':'query_failed','reason_code':'fixture_read_failed'}
+        text=Path(os.environ['ROBOT_CARE_FIXTURE_FILE']).read_text(encoding='utf-8')
+    except (OSError,UnicodeError,KeyError):
+        return fixture_failure('fixture_read_failed')
+    try:
+        raw=json.loads(text)
+    except (ValueError,RecursionError):
+        return fixture_failure('fixture_json_invalid')
+    if not valid_fixture_document(raw):
+        return fixture_failure('fixture_schema_invalid')
     items=[]
     seen=set()
     for source in raw['records']:

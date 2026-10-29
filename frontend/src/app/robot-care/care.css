@@ -25,6 +25,9 @@
 .care-btn:disabled { opacity:.5; cursor:wait; }
 .care-badge { display:inline-block; border-radius:5px; padding:2px 9px; font-size:12px; background:#edf2ef; color:#405d55; margin:0 5px 4px 0; }
 .care-badge.test { background:#f9eacb; color:#705313; font-weight:700; }
+.care-badge.non-test { background:#e9eff7; color:#405a7c; }
+.care-trend-group,.care-emotion-counts { border-top:1px solid var(--line); padding-top:16px; margin-top:18px; }
+.care-trend-group h3,.care-emotion-counts h3 { margin-bottom:8px; }
 .care-badge.negative { background:#f8e8e7; color:#894a4c; }
 .care-badge.positive { background:#e0f2e8; color:#326951; }
 .care-badge.neutral { background:#eaf0f6; color:#4a637d; }
@@ -62,17 +65,29 @@
 @media(max-width:700px) { .care-grid { grid-template-columns:1fr; } .care-main { padding:25px 16px; } .care-title { font-size:25px; } .care-card,.care-report { padding:18px; } .care-nav a { padding:12px; } .care-session { align-items:flex-start; flex-direction:column; } .care-top { align-items:flex-start; } }
 @page { size:A4; margin:18mm 16mm 20mm; }
 @page care-summary {
-  @bottom-center { content:"辅助陪伴记录摘要 · 非诊断用途　" counter(page) " / " counter(pages); font-family:"Microsoft YaHei",sans-serif; font-size:9pt; color:#7a5a1d; }
+  @bottom-center { content:"数据性质待确认 · 辅助陪伴 · 非诊断用途　" counter(page) " / " counter(pages); font-family:"Microsoft YaHei",sans-serif; font-size:9pt; color:#7a5a1d; }
 }
 @page care-summary-demo {
   @bottom-center { content:"模拟数据演示 · 辅助陪伴 · 非诊断用途　" counter(page) " / " counter(pages); font-family:"Microsoft YaHei",sans-serif; font-size:9pt; color:#7a5a1d; }
+}
+@page care-summary-non-test {
+  @bottom-center { content:"非测试标志数据 · 不代表真实来源已验证 · 非诊断用途　" counter(page) " / " counter(pages); font-family:"Microsoft YaHei",sans-serif; font-size:8pt; color:#405a7c; }
+}
+@page care-summary-mixed {
+  @bottom-center { content:"混合来源：测试与非测试分流 · 非诊断用途　" counter(page) " / " counter(pages); font-family:"Microsoft YaHei",sans-serif; font-size:9pt; color:#7a5a1d; }
+}
+@page care-summary-empty {
+  @bottom-center { content:"当前范围无纳入来源 · 非诊断用途　" counter(page) " / " counter(pages); font-family:"Microsoft YaHei",sans-serif; font-size:9pt; color:#566d6b; }
 }
 @media print {
   html,body,.care-root { background:white !important; color:#182d28 !important; font-size:10pt; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
   .care-top,.care-nav,.care-actions,.care-no-print,.care-footer,button,input,textarea,select { display:none !important; }
   .care-main { max-width:none; padding:0; margin:0; }
   .care-report { padding:0; border:0; page:care-summary; }
-  .care-report[data-is-test="true"] { page:care-summary-demo; }
+  .care-report[data-data-nature="test_only"] { page:care-summary-demo; }
+  .care-report[data-data-nature="non_test_only"] { page:care-summary-non-test; }
+  .care-report[data-data-nature="mixed"] { page:care-summary-mixed; }
+  .care-report[data-data-nature="empty"] { page:care-summary-empty; }
   .care-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
   .care-report h1 { font-size:22pt; }
   .care-report h2 { break-after:avoid; font-size:13pt; }

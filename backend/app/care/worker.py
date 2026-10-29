@@ -11,11 +11,15 @@ from .settings import engine_configuration
 
 class Worker:
     def __init__(self,*,clock=now,analyzer=None):
-        self.active,self.core,self.config=engine_configuration()
+        self.refresh_configuration()
         self.clock=clock
         self.analyzer=analyzer
 
+    def refresh_configuration(self):
+        self.active,self.core,self.config=engine_configuration()
+
     def scan(self,limit=100):
+        self.refresh_configuration()
         with transaction(True) as db:
             rows=db.query(RecordMessage,RecordSession.user_id).join(RecordSession,RecordSession.id==RecordMessage.recording_session_id).filter(
                 RecordSession.state!='deleted',RecordMessage.role=='user',RecordMessage.text_status=='completed').order_by(RecordMessage.id).all()
@@ -30,6 +34,7 @@ class Worker:
             return created
 
     def claim(self):
+        self.refresh_configuration()
         stamp=self.clock()
         with transaction(True) as db:
             jobs=db.query(AnalysisJob).filter_by(engine_kind=self.config['engine_kind'],engine_version=self.config['engine_version'],config_version=self.config['config_version']).filter(or_(
@@ -40,6 +45,9 @@ class Worker:
                     job.state='invalidated'
                     job.input_snapshot=None
                     job.execution_token=None
+                    job.lease_until=None
+                    job.next_retry_at=None
+                    db.query(SupportPolicy).filter_by(job_id=job.id).update({'is_current':0})
                     continue
                 if job.attempt>=self.active.max_attempts:
                     job.state='failed'
