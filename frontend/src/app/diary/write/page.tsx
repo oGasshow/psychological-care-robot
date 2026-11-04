@@ -52,17 +52,6 @@ export default function DiaryWritePage() {
   const [aiFeedback, setAiFeedback] = useState<any>(null);
   const [diaryDate, setDiaryDate] = useState(new Date().toISOString().split('T')[0]);
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    fetchTemplates();
-    fetchGuidedQuestion();
-  }, []);
-
   const fetchTemplates = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -94,6 +83,25 @@ export default function DiaryWritePage() {
       console.error('获取引导问题失败:', error);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchTemplates();
+    fetchGuidedQuestion();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, []);
+
+
+
+
 
   const toggleEmotion = (emotionName: string) => {
     const existing = selectedEmotions.find(e => e.emotion === emotionName);
@@ -192,7 +200,7 @@ export default function DiaryWritePage() {
                   </p>
                   <p className="text-gray-700">
                     <strong>情绪效价：</strong>
-                    {aiFeedback.emotion_analysis.emotion_valence === 'positive' ? '积极 😊' : 
+                    {aiFeedback.emotion_analysis.emotion_valence === 'positive' ? '积极 😊' :
                      aiFeedback.emotion_analysis.emotion_valence === 'negative' ? '消极 😔' : '中性 😐'}
                   </p>
                 </div>
@@ -433,7 +441,7 @@ export default function DiaryWritePage() {
             {/* 生活维度 */}
             <div className="bg-white rounded-2xl shadow-lg p-6">
               <h3 className="text-lg font-semibold text-gray-800 mb-4">🌱 生活维度</h3>
-              
+
               <div className="space-y-3">
                 <div>
                   <label className="text-sm text-gray-700 mb-1 block flex justify-between">

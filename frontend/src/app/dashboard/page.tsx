@@ -16,13 +16,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
   const checkAuth = async () => {
     const token = localStorage.getItem('access_token');
-    
+
     if (!token) {
       router.push('/login');
       return;
@@ -50,6 +46,16 @@ export default function DashboardPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    checkAuth();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, []);
+
+
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
@@ -99,7 +105,7 @@ export default function DashboardPage() {
               心翼 Xinyi
             </span>
           </div>
-          
+
           <div className="flex items-center gap-4">
             <span className="text-gray-700">你好，{userInfo?.username}</span>
             <button

@@ -21,8 +21,11 @@ export default function ReportPage({printMode=false}:{printMode?:boolean}) {
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState('');
   useEffect(()=>{
+    const timer=window.setTimeout(()=>{
     try { const saved=JSON.parse(sessionStorage.getItem('care-report-scope')||'null'); if(saved){setScope(saved);if(saved.session_ids){setMode('sessions');setIds(saved.session_ids.join(','));}else if(saved.time_from&&saved.time_to){setFrom(beijingInput(saved.time_from));setTo(beijingInput(saved.time_to));}void request(saved,false);} }
     catch{setMessage('请重新选择报告范围。');}
+    },0);
+    return()=>window.clearTimeout(timer);
   },[]);
   async function request(selected:Data,print:boolean) {
     setBusy(true);setError(null);setMessage('正在重新读取并核验来源…');

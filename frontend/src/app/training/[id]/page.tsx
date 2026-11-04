@@ -32,32 +32,6 @@ export default function TrainingDetailPage() {
   const [rating, setRating] = useState(0);
   const [feedback, setFeedback] = useState('');
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-    
-    fetchTrainingDetail();
-  }, [trainingId]);
-
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (isTraining && !isPaused && timeRemaining > 0) {
-      timer = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            handleTrainingComplete();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [isTraining, isPaused, timeRemaining]);
-
   const fetchTrainingDetail = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -81,6 +55,38 @@ export default function TrainingDetailPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchTrainingDetail();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, [trainingId]);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isTraining && !isPaused && timeRemaining > 0) {
+      timer = setInterval(() => {
+        setTimeRemaining(prev => {
+          if (prev <= 1) {
+            handleTrainingComplete();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [isTraining, isPaused, timeRemaining]);
+
+
 
   const startTraining = () => {
     if (training) {
@@ -255,7 +261,7 @@ export default function TrainingDetailPage() {
                 {formatTime(timeRemaining)}
               </div>
               <div className="text-gray-600">剩余时间</div>
-              
+
               {/* 进度条 */}
               <div className="mt-4 w-full h-2 bg-gray-200 rounded-full overflow-hidden">
                 <div
@@ -284,7 +290,7 @@ export default function TrainingDetailPage() {
                   ))}
                 </div>
               </div>
-              
+
               <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6">
                 <p className="text-lg text-gray-800 leading-relaxed">
                   {training.steps[currentStep]}

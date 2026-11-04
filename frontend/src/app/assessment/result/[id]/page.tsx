@@ -43,20 +43,10 @@ export default function AssessmentResultPage() {
   const [trendData, setTrendData] = useState<TrendData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    fetchResult();
-  }, [router, recordId]);
-
   const fetchResult = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      
+
       // 获取评估结果
       const resultResponse = await fetch(
         `/api/assessments/${recordId}/result`,
@@ -97,6 +87,22 @@ export default function AssessmentResultPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchResult();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, [router, recordId]);
+
+
 
   if (loading) {
     return (

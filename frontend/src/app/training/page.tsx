@@ -16,39 +16,39 @@ interface Training {
 }
 
 const TRAINING_TYPES: Record<string, { name: string; color: string; emoji: string; gradient: string }> = {
-  breathing: { 
-    name: '呼吸训练', 
-    color: 'blue', 
+  breathing: {
+    name: '呼吸训练',
+    color: 'blue',
     emoji: '🫑',
     gradient: 'linear-gradient(to right, rgb(59, 130, 246), rgb(37, 99, 235))'
   },
-  muscle_relaxation: { 
-    name: '肌肉放松', 
-    color: 'green', 
+  muscle_relaxation: {
+    name: '肌肉放松',
+    color: 'green',
     emoji: '💪',
     gradient: 'linear-gradient(to right, rgb(34, 197, 94), rgb(22, 163, 74))'
   },
-  mindfulness: { 
-    name: '正念冥想', 
-    color: 'purple', 
+  mindfulness: {
+    name: '正念冥想',
+    color: 'purple',
     emoji: '🧘',
     gradient: 'linear-gradient(to right, rgb(168, 85, 247), rgb(126, 34, 206))'
   },
-  cognitive: { 
-    name: '认知重构', 
-    color: 'orange', 
+  cognitive: {
+    name: '认知重构',
+    color: 'orange',
     emoji: '💭',
     gradient: 'linear-gradient(to right, rgb(249, 115, 22), rgb(234, 88, 12))'
   },
-  emotion: { 
-    name: '情绪调节', 
-    color: 'pink', 
+  emotion: {
+    name: '情绪调节',
+    color: 'pink',
     emoji: '😊',
     gradient: 'linear-gradient(to right, rgb(236, 72, 153), rgb(219, 39, 119))'
   },
-  sleep: { 
-    name: '睡眠训练', 
-    color: 'indigo', 
+  sleep: {
+    name: '睡眠训练',
+    color: 'indigo',
     emoji: '🌙',
     gradient: 'linear-gradient(to right, rgb(99, 102, 241), rgb(79, 70, 229))'
   },
@@ -60,23 +60,13 @@ export default function TrainingPage() {
   const [loading, setLoading] = useState(true);
   const [selectedType, setSelectedType] = useState<string | null>(null);
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-    
-    fetchTrainings();
-  }, [router, selectedType]);
-
   const fetchTrainings = async () => {
     try {
       const token = localStorage.getItem('access_token');
       const url = selectedType
         ? `/api/training/list?training_type=${selectedType}`
         : '/api/training/list';
-      
+
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -96,6 +86,22 @@ export default function TrainingPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchTrainings();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, [router, selectedType]);
+
+
 
   const startTraining = (id: number) => {
     router.push(`/training/${id}`);
@@ -191,7 +197,7 @@ export default function TrainingPage() {
                   onClick={() => startTraining(training.id)}
                 >
                   {/* 卡片头部 */}
-                  <div 
+                  <div
                     className="p-6 text-white"
                     style={{ background: typeInfo.gradient }}
                   >

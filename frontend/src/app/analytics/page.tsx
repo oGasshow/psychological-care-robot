@@ -58,17 +58,6 @@ export default function AnalyticsPage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [userCreatedYear, setUserCreatedYear] = useState<number>(new Date().getFullYear());
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    fetchUserInfo();
-    fetchData();
-  }, [selectedYear]);
-
   const fetchUserInfo = async () => {
     const token = localStorage.getItem('access_token');
     try {
@@ -89,11 +78,11 @@ export default function AnalyticsPage() {
 
   const fetchData = async () => {
     const token = localStorage.getItem('access_token');
-    
+
     try {
       const startDate = `${selectedYear}-01-01`;
       const endDate = `${selectedYear}-12-31`;
-      
+
       // 获取日记数据
       const diariesRes = await fetch(
         `/api/diary/list?start_date=${startDate}&end_date=${endDate}`,
@@ -140,9 +129,28 @@ export default function AnalyticsPage() {
     }
   };
 
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchUserInfo();
+    fetchData();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, [selectedYear]);
+
+
+
+
+
   // 生成情绪趋势数据
   const generateEmotionTrend = () => {
-    const sortedDiaries = [...diaries].sort((a, b) => 
+    const sortedDiaries = [...diaries].sort((a, b) =>
       new Date(a.diary_date).getTime() - new Date(b.diary_date).getTime()
     );
 
@@ -151,7 +159,7 @@ export default function AnalyticsPage() {
       if (diary.emotions) {
         const positiveEmotions = ['快乐', '兴奋', '平静', '感恩', '满足'];
         const negativeEmotions = ['悲伤', '焦虑', '愤怒', '失落', '孤独', '压力', '恐惧'];
-        
+
         diary.emotions.forEach(e => {
           if (positiveEmotions.includes(e.emotion)) {
             positiveScore += e.intensity;
@@ -191,12 +199,12 @@ export default function AnalyticsPage() {
   const getYearStats = (): YearStats => {
     const totalWords = getTotalWords();
     const trainingDuration = trainings.reduce((sum, t) => sum + (t.duration || 0), 0);
-    
+
     // 计算积极情绪占比
     let positiveCount = 0;
     let totalEmotions = 0;
     const positiveEmotions = ['快乐', '兴奋', '平静', '感恩', '满足'];
-    
+
     diaries.forEach(diary => {
       if (diary.emotions) {
         diary.emotions.forEach(e => {
@@ -207,7 +215,7 @@ export default function AnalyticsPage() {
         });
       }
     });
-    
+
     const positiveRatio = totalEmotions > 0 ? Math.round((positiveCount / totalEmotions) * 100) : 0;
 
     return {
@@ -258,7 +266,7 @@ export default function AnalyticsPage() {
             </button>
             <h1 className="text-3xl font-bold text-gray-800">📊 数据分析</h1>
           </div>
-          
+
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
@@ -277,31 +285,31 @@ export default function AnalyticsPage() {
             <div className="text-3xl font-bold text-blue-500">{yearStats.diary_count}</div>
             <div className="text-sm text-gray-600 mt-2">日记篇数</div>
           </div>
-          
+
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center">
             <div className="text-4xl mb-2">✍️</div>
             <div className="text-3xl font-bold text-purple-500">{yearStats.total_words.toLocaleString()}</div>
             <div className="text-sm text-gray-600 mt-2">总字数</div>
           </div>
-          
+
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center">
             <div className="text-4xl mb-2">📋</div>
             <div className="text-3xl font-bold text-green-500">{yearStats.assessment_count}</div>
             <div className="text-sm text-gray-600 mt-2">心理评估</div>
           </div>
-          
+
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center">
             <div className="text-4xl mb-2">🏋️</div>
             <div className="text-3xl font-bold text-orange-500">{yearStats.training_count}</div>
             <div className="text-sm text-gray-600 mt-2">训练次数</div>
           </div>
-          
+
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center">
             <div className="text-4xl mb-2">⏱️</div>
             <div className="text-3xl font-bold text-red-500">{yearStats.training_duration}</div>
             <div className="text-sm text-gray-600 mt-2">训练时长(分)</div>
           </div>
-          
+
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center">
             <div className="text-4xl mb-2">😊</div>
             <div className="text-3xl font-bold text-green-500">{yearStats.positive_ratio}%</div>
@@ -348,26 +356,26 @@ export default function AnalyticsPage() {
                   <span>0</span>
                   <span>消极</span>
                 </div>
-                
+
                 {/* 图表容器 */}
                 <div className="ml-12 h-64">
                   {/* 0刻度线 */}
                   <div className="absolute left-12 right-0 top-1/2 border-t-2 border-gray-300 z-0"></div>
-                  
+
                   {/* 柱状图 */}
                   <div className="relative h-full flex justify-around gap-1">
                     {(() => {
                       // 在循环外计算最大值
                       const maxScore = Math.max(...emotionTrend.map(p => Math.abs(p.score)), 1);
-                      
+
                       return emotionTrend.map((point, index) => {
                         // 计算高度百分比（占据一半容器的百分比）
-                        const heightPercent = point.score === 0 
+                        const heightPercent = point.score === 0
                           ? 2  // 0分显示2%
                           : (Math.abs(point.score) / maxScore) * 45 + 5;  // 5%-50%
                         const isPositive = point.score > 0;
                         const isNeutral = point.score === 0;
-                        
+
                         return (
                           <div
                             key={index}
@@ -376,33 +384,33 @@ export default function AnalyticsPage() {
                             {/* 上半部分 - 积极情绪从下往上填充 */}
                             <div className="flex-1 flex flex-col justify-end items-stretch">
                               {isPositive && (
-                                <div 
+                                <div
                                   className="w-full bg-green-400 hover:bg-green-500 transition-all rounded-t"
                                   style={{ height: `${heightPercent * 2}%` }}
                                 ></div>
                               )}
                             </div>
-                            
+
                             {/* 下半部分 - 消极情绪从上往下填充 */}
                             <div className="flex-1 flex flex-col justify-start items-stretch">
                               {isNeutral && (
                                 <div className="w-full h-1 bg-gray-300 hover:bg-gray-400 rounded"></div>
                               )}
                               {!isPositive && !isNeutral && (
-                                <div 
+                                <div
                                   className="w-full bg-red-400 hover:bg-red-500 transition-all rounded-b"
                                   style={{ height: `${heightPercent * 2}%` }}
                                 ></div>
                               )}
                             </div>
-                            
+
                             {/* Hover提示 */}
                             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 hidden group-hover:block bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-20">
                               {point.date}
                               <br />
                               {point.emotion} ({point.score > 0 ? '+' : ''}{point.score})
                             </div>
-                            
+
                             {/* 日期标签 */}
                             <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-600 whitespace-nowrap">
                               {new Date(point.date).getMonth() + 1}/{new Date(point.date).getDate()}

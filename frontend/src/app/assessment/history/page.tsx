@@ -25,18 +25,9 @@ const RISK_LEVEL_CONFIG: Record<string, { color: string; bg: string; emoji: stri
 export default function AssessmentHistoryPage() {
   const router = useRouter();
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [snapshotTime, setSnapshotTime] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedScale, setSelectedScale] = useState<string | null>(null);
-
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    fetchHistory();
-  }, [router, selectedScale]);
 
   const fetchHistory = async () => {
     try {
@@ -53,6 +44,7 @@ export default function AssessmentHistoryPage() {
 
       if (response.ok) {
         const data = await response.json();
+        setSnapshotTime(Date.now());
         setHistory(data);
       } else {
         alert('获取历史记录失败');
@@ -64,6 +56,22 @@ export default function AssessmentHistoryPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchHistory();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, [router, selectedScale]);
+
+
 
   const viewResult = (id: number) => {
     router.push(`/assessment/result/${id}`);
@@ -117,7 +125,7 @@ export default function AssessmentHistoryPage() {
             </div>
             <div className="text-center">
               <div className="text-3xl font-bold text-blue-600 mb-1">
-                {history.length > 0 ? Math.ceil((Date.now() - new Date(history[history.length - 1].created_at).getTime()) / (1000 * 60 * 60 * 24)) : 0}
+                {history.length > 0 ? Math.ceil((snapshotTime - new Date(history[history.length - 1].created_at).getTime()) / (1000 * 60 * 60 * 24)) : 0}
               </div>
               <div className="text-sm text-gray-600">天数记录</div>
             </div>

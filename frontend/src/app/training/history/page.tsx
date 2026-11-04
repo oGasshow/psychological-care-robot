@@ -49,20 +49,10 @@ export default function TrainingHistoryPage() {
     sleep: 'from-indigo-400 to-blue-400',
   };
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    fetchData();
-  }, []);
-
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      
+
       const [recordsRes, statsRes] = await Promise.all([
         fetch('/api/training/records', {
           headers: { 'Authorization': `Bearer ${token}` },
@@ -89,6 +79,22 @@ export default function TrainingHistoryPage() {
     }
   };
 
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchData();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, []);
+
+
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('zh-CN', {
@@ -100,8 +106,8 @@ export default function TrainingHistoryPage() {
     });
   };
 
-  const filteredRecords = filterType === 'all' 
-    ? records 
+  const filteredRecords = filterType === 'all'
+    ? records
     : records.filter(r => r.training_type === filterType);
 
   if (loading) {
@@ -163,7 +169,7 @@ export default function TrainingHistoryPage() {
                 <span className="text-3xl">⭐</span>
               </div>
               <div className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-rose-600">
-                {Object.entries(stats.type_distribution).sort((a, b) => b[1] - a[1])[0]?.[0] 
+                {Object.entries(stats.type_distribution).sort((a, b) => b[1] - a[1])[0]?.[0]
                   ? typeLabels[Object.entries(stats.type_distribution).sort((a, b) => b[1] - a[1])[0][0]]
                   : '暂无'}
               </div>

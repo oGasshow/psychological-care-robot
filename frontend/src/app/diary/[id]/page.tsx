@@ -49,16 +49,6 @@ export default function DiaryDetailPage() {
   const [diary, setDiary] = useState<DiaryDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    fetchDiary();
-  }, [diaryId]);
-
   const fetchDiary = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -81,6 +71,22 @@ export default function DiaryDetailPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchDiary();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, [diaryId]);
+
+
 
   const handleDelete = async () => {
     if (!confirm('确定要删除这篇日记吗？')) {
@@ -266,7 +272,7 @@ export default function DiaryDetailPage() {
                   </p>
                   <p className="text-gray-700">
                     <strong>情绪效价：</strong>
-                    {diary.ai_feedback.emotion_analysis.emotion_valence === 'positive' ? '积极 😊' : 
+                    {diary.ai_feedback.emotion_analysis.emotion_valence === 'positive' ? '积极 😊' :
                      diary.ai_feedback.emotion_analysis.emotion_valence === 'negative' ? '消极 😔' : '中性 😐'}
                   </p>
                 </div>

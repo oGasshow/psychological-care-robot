@@ -33,16 +33,6 @@ export default function DiaryPage() {
   const [diaries, setDiaries] = useState<DiaryItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    fetchDiaries();
-  }, []);
-
   const fetchDiaries = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -63,6 +53,22 @@ export default function DiaryPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchDiaries();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, []);
+
+
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);

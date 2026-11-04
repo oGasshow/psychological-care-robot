@@ -8,7 +8,8 @@ export default function LandingPage() {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    setIsVisible(true);
+    const frame = window.requestAnimationFrame(() => setIsVisible(true));
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   const features = [
@@ -95,7 +96,7 @@ export default function LandingPage() {
             <p className="text-lg text-gray-500 mb-12">
               隐私优先 · 本地部署 · 专业陪伴
             </p>
-            
+
             {/* CTA 按钮 */}
             <button
               onClick={() => router.push('/login')}

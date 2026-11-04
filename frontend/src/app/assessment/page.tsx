@@ -30,23 +30,13 @@ export default function AssessmentPage() {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-    
-    fetchAssessments();
-  }, [router, selectedCategory]);
-
   const fetchAssessments = async () => {
     try {
       const token = localStorage.getItem('access_token');
       const url = selectedCategory
         ? `/api/assessments/list?category=${selectedCategory}`
         : '/api/assessments/list';
-      
+
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -66,6 +56,22 @@ export default function AssessmentPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchAssessments();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, [router, selectedCategory]);
+
+
 
   const startAssessment = (id: number) => {
     router.push(`/assessment/${id}`);
@@ -161,10 +167,10 @@ export default function AssessmentPage() {
                   onClick={() => startAssessment(assessment.id)}
                 >
                   {/* 卡片头部 */}
-                  <div 
+                  <div
                     className="p-6 text-white"
                     style={{
-                      background: assessment.category === 'depression' 
+                      background: assessment.category === 'depression'
                         ? 'linear-gradient(to right, rgb(59, 130, 246), rgb(37, 99, 235))'
                         : assessment.category === 'anxiety'
                         ? 'linear-gradient(to right, rgb(168, 85, 247), rgb(126, 34, 206))'
@@ -204,7 +210,7 @@ export default function AssessmentPage() {
                     <button
                       className="w-full py-3 rounded-xl font-semibold text-white hover:shadow-lg transform group-hover:scale-105 transition-all duration-200"
                       style={{
-                        background: assessment.category === 'depression' 
+                        background: assessment.category === 'depression'
                           ? 'linear-gradient(to right, rgb(59, 130, 246), rgb(37, 99, 235))'
                           : assessment.category === 'anxiety'
                           ? 'linear-gradient(to right, rgb(168, 85, 247), rgb(126, 34, 206))'

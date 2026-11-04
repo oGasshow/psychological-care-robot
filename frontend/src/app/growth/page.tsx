@@ -61,17 +61,6 @@ export default function GrowthPage() {
   const [activeTab, setActiveTab] = useState<'wall' | 'achievements'>('wall');
   const [userCreatedYear, setUserCreatedYear] = useState<number>(new Date().getFullYear());
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    fetchUserInfo();
-    fetchData();
-  }, [selectedYear]);
-
   const fetchUserInfo = async () => {
     const token = localStorage.getItem('access_token');
     try {
@@ -92,7 +81,7 @@ export default function GrowthPage() {
 
   const fetchData = async () => {
     const token = localStorage.getItem('access_token');
-    
+
     try {
       // 获取爱心墙数据
       const heartRes = await fetch(
@@ -151,10 +140,29 @@ export default function GrowthPage() {
     }
   };
 
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchUserInfo();
+    fetchData();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, [selectedYear]);
+
+
+
+
+
   // 生成月份分组数据
   const generateMonthlyData = () => {
     const monthGroups: { [key: string]: HeartData[] } = {};
-    
+
     heartWall.forEach(day => {
       const monthKey = day.date.substring(0, 7); // YYYY-MM
       if (!monthGroups[monthKey]) {
@@ -166,26 +174,26 @@ export default function GrowthPage() {
     return Object.entries(monthGroups).map(([monthKey, days]) => {
       const monthDate = new Date(monthKey + '-01');
       const monthName = `${monthDate.getMonth() + 1}月`;
-      
+
       // 计算该月1号是星期几
       const firstDayOfWeek = monthDate.getDay();
       const offset = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
-      
+
       // 添加前置空白
       const fullMonthData: (HeartData | null)[] = [];
       for (let i = 0; i < offset; i++) {
         fullMonthData.push(null);
       }
-      
+
       // 添加实际数据
       days.forEach(day => fullMonthData.push(day));
-      
+
       // 按周分组
       const weeks: (HeartData | null)[][] = [];
       for (let i = 0; i < fullMonthData.length; i += 7) {
         weeks.push(fullMonthData.slice(i, i + 7));
       }
-      
+
       return { monthName, weeks };
     });
   };
@@ -240,7 +248,7 @@ export default function GrowthPage() {
             </button>
             <h1 className="text-3xl font-bold text-gray-800">💕 心翼之墙</h1>
           </div>
-          
+
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
@@ -328,7 +336,7 @@ export default function GrowthPage() {
             {monthlyData.map(({ monthName, weeks }) => (
               <div key={monthName}>
                 <h3 className="text-lg font-semibold text-gray-700 mb-3">{monthName}</h3>
-                
+
                 {/* 星期标签 */}
                 <div className="grid grid-cols-7 gap-2 mb-2">
                   {['一', '二', '三', '四', '五', '六', '日'].map(day => (
@@ -405,7 +413,7 @@ export default function GrowthPage() {
                 <div className="text-5xl mb-2">{achievement.icon}</div>
                 <div className="font-semibold text-gray-800">{achievement.name}</div>
                 <div className="text-xs text-gray-600 mt-1">{achievement.condition}</div>
-                
+
                 {achievement.achieved && achievement.achieved_at && (
                   <div className="text-xs text-gray-500 mt-2">
                     {new Date(achievement.achieved_at).toLocaleDateString('zh-CN')}

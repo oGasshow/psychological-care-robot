@@ -32,16 +32,6 @@ export default function AssessmentTestPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    fetchAssessmentDetail();
-  }, [router, templateId]);
-
   const fetchAssessmentDetail = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -71,6 +61,22 @@ export default function AssessmentTestPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const initialRead = window.setTimeout(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    fetchAssessmentDetail();
+
+    }, 0);
+    return () => window.clearTimeout(initialRead);
+  }, [router, templateId]);
+
+
 
   const handleAnswer = (value: number) => {
     const newAnswers = [...answers];
