@@ -30,6 +30,14 @@
 
 ## 本地运行
 
+Windows 安装依赖后，可直接双击根目录中的脚本：
+
+- [Start-Project.cmd](Start-Project.cmd)：启动接口、分析 worker 和网页，打开浏览器。
+- [Start-API.cmd](Start-API.cmd)：仅启动接口和分析 worker，打开接口文档。
+- [Stop-Project.cmd](Stop-Project.cmd)：停止上述脚本启动的服务。
+
+启动窗口显示实际访问地址和本机虚构演示账号；首次或前端源码变更后会重新构建，请等待完成。脚本使用项目自己的 `.venv`，运行库和私有凭据保存在 `runtime/direct_start`，再次启动保留数据。未安装依赖时，先按以下步骤运行 `Setup-Project.ps1`。
+
 已在 Windows 验证的工具组合为 Node.js 22.14.0、npm 10.9.2、uv 0.13.6、Python 3.13.18 和已安装的 Microsoft Edge。
 
 在 PowerShell 中克隆并安装：
