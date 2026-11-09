@@ -96,7 +96,7 @@ export default function LoginPage() {
             <div className="flex justify-center items-center gap-2 mb-4">
               <span className="text-4xl">💕</span>
               <span className="text-2xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
-                心翼 Xinyi
+                心理陪伴
               </span>
             </div>
             <p className="text-gray-600">
@@ -219,7 +219,7 @@ export default function LoginPage() {
 
         {/* 底部提示 */}
         <p className="text-center text-sm text-gray-500 mt-6">
-          使用心翼即表示您同意我们的服务条款和隐私政策
+          使用本系统即表示您同意我们的服务条款和隐私政策
         </p>
       </div>
     </div>

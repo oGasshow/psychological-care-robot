@@ -1,6 +1,7 @@
 'use client';
 
 import { Data, date, label, list } from '@/lib/care-api';
+import { assistantDisplayText } from '@/lib/display-text';
 
 export type DataNature = 'test_only' | 'non_test_only' | 'mixed' | 'empty' | 'unconfirmed';
 export function reportDataNature(data: Data): DataNature {
@@ -34,8 +35,8 @@ export function Assessments({ items, empty = '暂无量表记录；未补为 0 �
     <h3>{a.display_name || a.scale_name}</h3><DataNatureBadge isTest={a.is_test}/><span className="care-badge">{label(a.verification_status)}</span><span className="care-badge">{label(a.applicability_status)}</span>
     <p><strong>{a.total_score === null || a.total_score === undefined ? '分数未确认' : `${a.total_score} 分`}</strong> · 范围 {a.score_min ?? '未确认'}—{a.score_max ?? '未确认'}</p>
     <p className="care-meta">完成时间：{date(a.completed_at)} · 时间来源 {a.time_source || a.completed_at_source || '未确认'}<br/>来源 {a.source_record_id} · {label(a.source_kind)} · 量表版本 {a.scale_version || '未确认'}<br/>计分版本 {a.scoring_version || '未确认'} · 解释版本 {a.interpretation_version || '未确认'}<br/>内容审核 {a.content_review_status || '未确认'} · 审核依据 {typeof a.review_reference === 'object' ? JSON.stringify(a.review_reference) : a.review_reference || '未提供'}</p>
-    {a.verification_status?.startsWith('verified_') && a.reference_interpretation && <p className="care-text">参考解释：{a.reference_interpretation}</p>}
-    {a.verification_status?.startsWith('verified_') && (a.reference_advice || a.suggestions) && <p className="care-text">参考建议：{a.reference_advice || a.suggestions}</p>}
+    {a.verification_status?.startsWith('verified_') && a.reference_interpretation && <p className="care-text">参考解释：{assistantDisplayText(String(a.reference_interpretation))}</p>}
+    {a.verification_status?.startsWith('verified_') && (a.reference_advice || a.suggestions) && <p className="care-text">参考建议：{assistantDisplayText(String(a.reference_advice || a.suggestions))}</p>}
     {(a.reason_code || a.verification_reason || a.verification_reasons) && <p className="care-notice care-warning">{[a.reason_code, a.verification_reason, ...(Array.isArray(a.verification_reasons) ? a.verification_reasons : [])].filter(Boolean).join('；')}</p>}
   </article>)}</>;
 }

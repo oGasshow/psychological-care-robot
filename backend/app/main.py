@@ -13,7 +13,7 @@ Base.metadata.create_all(bind=engine)
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title="心翼 Xinyi API",
+    title="心理疏导机器人系统 API",
     description="心理健康陪伴助手后端 API",
     version="1.0.0"
 )
@@ -44,7 +44,7 @@ care_api.install(app)
 async def root():
     """API 根路径"""
     return {
-        "message": "心翼 Xinyi API",
+        "message": "心理疏导机器人系统 API",
         "version": "1.0.0",
         "status": "running"
     }

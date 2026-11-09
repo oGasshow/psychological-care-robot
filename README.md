@@ -77,6 +77,6 @@ Set-Location psychological-care-robot
 
 ## 项目来源
 
-本项目在 [Ethanwhh/xinyi](https://github.com/Ethanwhh/xinyi) 的基础上增量开发。上游的原始介绍单独保存在 [心翼原始 README](docs/upstream/README_XINYI.md)，其中的相对链接仍按原项目结构保留。
+本项目在 [上游项目](https://github.com/Ethanwhh/xinyi) 的基础上增量开发。上游的原始介绍单独保存在 [上游原始 README](docs/upstream/README_XINYI.md)，其中的相对链接仍按原项目结构保留。
 
 仓库保留原 [MIT 协议及版权署名](LICENSE)。当前项目的功能、运行入口和验证状态以上述说明及对应模块文档为准。

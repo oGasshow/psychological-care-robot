@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { assistantDisplayText } from '@/lib/display-text';
 
 interface Emotion {
   emotion: string;
@@ -193,7 +194,7 @@ export default function DiaryWritePage() {
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">💭 情绪分析</h3>
                 <div className="space-y-2">
                   <p className="text-gray-700">
-                    <strong>主要情绪：</strong>{aiFeedback.emotion_analysis.primary_emotion}
+                    <strong>主要情绪：</strong>{assistantDisplayText(aiFeedback.emotion_analysis.primary_emotion)}
                   </p>
                   <p className="text-gray-700">
                     <strong>情绪强度：</strong>{aiFeedback.emotion_analysis.emotion_intensity}/10
@@ -215,7 +216,7 @@ export default function DiaryWritePage() {
                   {aiFeedback.life_quality.map((comment: string, index: number) => (
                     <li key={index} className="text-gray-700 flex items-start">
                       <span className="mr-2">•</span>
-                      <span>{comment}</span>
+                      <span>{assistantDisplayText(comment)}</span>
                     </li>
                   ))}
                 </ul>
@@ -230,7 +231,7 @@ export default function DiaryWritePage() {
                   {aiFeedback.positive_highlights.map((highlight: string, index: number) => (
                     <li key={index} className="text-gray-700 flex items-start">
                       <span className="mr-2">✨</span>
-                      <span>{highlight}</span>
+                      <span>{assistantDisplayText(highlight)}</span>
                     </li>
                   ))}
                 </ul>
@@ -244,8 +245,8 @@ export default function DiaryWritePage() {
                 <div className="space-y-3">
                   {aiFeedback.recommendations.map((rec: any, index: number) => (
                     <div key={index} className="bg-white p-4 rounded-lg">
-                      <div className="font-semibold text-gray-800">{rec.title}</div>
-                      <div className="text-sm text-gray-600 mt-1">{rec.reason}</div>
+                      <div className="font-semibold text-gray-800">{assistantDisplayText(rec.title)}</div>
+                      <div className="text-sm text-gray-600 mt-1">{assistantDisplayText(rec.reason)}</div>
                     </div>
                   ))}
                 </div>

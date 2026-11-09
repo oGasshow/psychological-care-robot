@@ -5,6 +5,7 @@ import {useEffect,useState} from 'react';
 import CareShell,{ErrorBox} from '@/components/care-shell';
 import {Assessments,Trends,DataNatureBadge,reportDataNature,dataNatureText,dataNatureDescription} from '@/components/care-results';
 import {Data,date,insights,label,list,natureNotice} from '@/lib/care-api';
+import {assistantDisplayText} from '@/lib/display-text';
 
 function describe(v:unknown):string { return typeof v==='string' ? v : typeof v==='object' && v!==null ? JSON.stringify(v) : String(v??'未提供'); }
 function signature(data:Data):string { const copy={...data}; delete copy.generated_at; delete copy.data_as_of; return JSON.stringify(copy); }
@@ -63,7 +64,7 @@ function ReportBody({dto}:{dto:Data}) {
   const natureSummary=dto.data_nature_summary || {};
   return <article className="care-report" data-testid="report-dto" data-is-test={dto.is_test===true?'true':'false'} data-data-nature={nature} data-generated-at={dto.generated_at}>
     <div className="care-print-stamp" data-testid="report-print-nature">{dataNatureText(nature)} · 辅助陪伴记录摘要 · 非诊断用途{nature==='non_test_only'?' · 标志不代表真实来源已验证':''}</div>
-    <div className="care-eyebrow">XINYI / 辅助陪伴记录摘要</div><h1 className="care-title">陪伴与量表报告</h1>
+    <div className="care-eyebrow">辅助陪伴记录摘要</div><h1 className="care-title">陪伴与量表报告</h1>
     <div className="care-notice care-warning" data-testid="report-nature-notice"><strong>{dataNatureText(nature)}</strong><p>{dataNatureDescription(nature)}</p></div>
     <p><strong>匿名展示编号：{dto.anonymous_id || dto.anonymous_code}</strong></p><p className="care-meta">报告生成：{date(dto.generated_at)}<br/>数据截至：{date(dto.data_as_of)}<br/>报告结构版本：{dto.schema_version || '1.0'}</p>
     <section><h2>统计范围与记录完整性</h2>{dto.scope?.session_ids?<p>指定会话：{dto.scope.session_ids.map((id:number)=>`#${id}`).join('、')}。未关联量表，未纳入本报告。</p>:<p>时间窗口（左闭右开）：{date(dto.scope?.time_from)} 至 {date(dto.scope?.time_to)}。对话按原始发生时间、量表按已确认完成时间筛选。</p>}{list(dto.sessions).map((s,i)=><p key={i}>会话 #{s.recording_session_id} · {label(s.state)} · {s.is_complete?'记录已收齐':'记录尚未收齐，结果不完整'} · 已保存 {s.received_record_count??'未提供'} 条 <DataNatureBadge isTest={s.is_test}/></p>)}</section>
@@ -71,7 +72,7 @@ function ReportBody({dto}:{dto:Data}) {
     <section><h2>主要情绪与来源</h2><EmotionCounts dto={dto}/><p className="care-meta">这些是单条文本的规则/模型分类，不代表临床结论。未知、失败、过期与排除记录不加入有效类别计数；测试与非测试标志的统计分别呈现。</p>{dto.analysis_counts&&<p>{Object.entries(dto.analysis_counts).map(([k,v])=><span className="care-badge" key={k}>{label(k)} {describe(v)}</span>)}</p>}</section>
     <Trends data={dto}/>
     <section><h2>有效量表分数与参考解释</h2><Assessments items={list(dto.assessments)} empty={dto.scope?.session_ids?'未关联量表，未纳入本报告。':'当前范围没有确认可纳入的量表结果，未补 0 分或“正常”。'}/></section>
-    <section><h2>非医疗建议</h2>{list(dto.suggestions).length?dto.suggestions.map((s:unknown,i:number)=><p className="care-text" key={i}>{describe(s)}</p>):<p>如愿意，可以记录自己的感受，与信任的人交流；需要时寻求合格专业人员的帮助。</p>}</section>
+    <section><h2>非医疗建议</h2>{list(dto.suggestions).length?dto.suggestions.map((s:unknown,i:number)=><p className="care-text" key={i}>{assistantDisplayText(describe(s))}</p>):<p>如愿意，可以记录自己的感受，与信任的人交流；需要时寻求合格专业人员的帮助。</p>}</section>
     <section><h2>数据缺失与说明</h2>{list(dto.warnings).length?dto.warnings.map((w:unknown,i:number)=><p className="care-text" key={i}>{describe(w)}</p>):<p>以本次来源核验结果为准。真实模型、真实语音与量表有效性须分别验证。</p>}<p>{dto.nature_notice || natureNotice}</p>{list(dto.assessments).some(a=>a.source_kind==='fixture')&&<p>fixture 的“已验证”仅指虚构演示数据的契约有效；适用范围为 demo_only，不能代替正式内容审核与适老确认。</p>}</section>
     <section><h2>来源 ID 与版本</h2>{list(dto.source_references).length?<div className="care-table-wrap"><table><thead><tr><th>来源属性</th><th>来源引用（保留记录与输入版本）</th></tr></thead><tbody>{dto.source_references.map((s:Data,i:number)=><tr key={i}><td><DataNatureBadge isTest={s.is_test}/></td><td className="care-text care-meta">{describe(s)}</td></tr>)}</tbody></table></div>:<p>本范围暂无有效来源引用。</p>}</section>
   </article>;

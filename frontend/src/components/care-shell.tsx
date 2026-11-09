@@ -24,7 +24,7 @@ export default function CareShell({ title, subtitle, children }: { title: string
   }, []);
   const nav = [['/robot-care', '对话记录'], ['/robot-care/assessments', '量表结果'], ['/robot-care/trends', '分类与分数趋势'], ['/robot-care/report', '报告摘要']];
   return <>
-    <header className="care-top care-no-print"><Link href="/robot-care" className="care-brand">心翼 · 陪伴记录<small>ROBOT CARE / 辅助陪伴工作台</small></Link><div className="care-anon">匿名展示编号<br/><strong data-testid="anonymous-id">{anonymousId}</strong><button className="care-btn secondary" style={{marginLeft:18}} onClick={() => { localStorage.removeItem('access_token'); sessionStorage.removeItem('care-report-scope'); router.push('/login'); }}>退出登录</button></div></header>
+    <header className="care-top care-no-print"><Link href="/robot-care" className="care-brand">陪伴记录<small>ROBOT CARE / 辅助陪伴工作台</small></Link><div className="care-anon">匿名展示编号<br/><strong data-testid="anonymous-id">{anonymousId}</strong><button className="care-btn secondary" style={{marginLeft:18}} onClick={() => { localStorage.removeItem('access_token'); sessionStorage.removeItem('care-report-scope'); router.push('/login'); }}>退出登录</button></div></header>
     <nav className="care-nav care-no-print" aria-label="陪伴记录导航">{nav.map(([href,text]) => <Link key={href} href={href} className={path === href || href !== '/robot-care' && path.startsWith(href) ? 'active' : ''}>{text}</Link>)}</nav>
     <main className="care-main"><div className="care-no-print"><div className="care-eyebrow">辅助陪伴 · 来源可追溯</div><h1 className="care-title">{title}</h1>{subtitle && <p className="care-subtitle">{subtitle}</p>}<ErrorBox error={error}/></div>{children}<footer className="care-footer care-no-print">{natureNotice}</footer></main>
   </>;

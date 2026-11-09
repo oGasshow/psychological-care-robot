@@ -35,7 +35,7 @@ export default function LandingPage() {
     },
     {
       icon: '💖',
-      title: '心翼之墙',
+      title: '成长之墙',
       description: '365 天成长轨迹，见证你的蜕变',
     },
     {
@@ -71,7 +71,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-2">
             <span className="text-2xl">💕</span>
             <span className="text-xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
-              心翼 Xinyi
+              心理陪伴
             </span>
           </div>
           <button
@@ -88,7 +88,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className={`text-center transform transition-all duration-1000 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
             <h1 className="text-5xl md:text-6xl font-bold text-gray-800 mb-6">
-              心翼 Xinyi
+              心理陪伴
             </h1>
             <p className="text-2xl md:text-3xl text-gray-600 mb-4">
               你的 24/7 AI 心理健康陪伴助手
@@ -205,7 +205,7 @@ export default function LandingPage() {
               准备好开始你的心理健康之旅了吗？
             </h2>
             <p className="text-xl mb-8 opacity-90">
-              现在就体验心翼，让我们陪伴你的每一天
+              开始使用，让我们陪伴你的每一天
             </p>
             <button
               onClick={() => router.push('/login')}
@@ -220,7 +220,7 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="py-8 px-6 bg-gray-50 border-t border-gray-200">
         <div className="max-w-7xl mx-auto text-center text-gray-600">
-          <p className="mb-2">© 2025 心翼 Xinyi - 仅供学习研究使用</p>
+          <p className="mb-2">心理疏导机器人系统 · 仅供学习研究使用</p>
           <p className="text-sm text-gray-500">
             技术栈：Next.js + FastAPI + SQLite + Ollama
           </p>

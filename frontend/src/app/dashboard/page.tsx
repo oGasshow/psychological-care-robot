@@ -68,7 +68,7 @@ export default function DashboardPage() {
     { id: 2, name: '心理评估', icon: '📋', path: '/assessment', color: 'from-purple-400 to-purple-600' },
     { id: 3, name: '训练指导', icon: '💪', path: '/training', color: 'from-green-400 to-green-600' },
     { id: 4, name: '情绪日记', icon: '📖', path: '/diary', color: 'from-pink-400 to-pink-600' },
-    { id: 5, name: '心翼之墙', icon: '💖', path: '/growth', color: 'from-red-400 to-red-600' },
+    { id: 5, name: '成长之墙', icon: '💖', path: '/growth', color: 'from-red-400 to-red-600' },
     { id: 6, name: '数据分析', icon: '📊', path: '/analytics', color: 'from-indigo-400 to-indigo-600' },
   ];
 
@@ -102,7 +102,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <span className="text-2xl">💕</span>
             <span className="text-xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
-              心翼 Xinyi
+              心理陪伴
             </span>
           </div>
 

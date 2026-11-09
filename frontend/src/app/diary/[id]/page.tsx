@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { assistantDisplayText } from '@/lib/display-text';
 
 interface DiaryDetail {
   id: number;
@@ -265,7 +266,7 @@ export default function DiaryDetailPage() {
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">💭 情绪分析</h3>
                 <div className="space-y-2">
                   <p className="text-gray-700">
-                    <strong>主要情绪：</strong>{diary.ai_feedback.emotion_analysis.primary_emotion}
+                    <strong>主要情绪：</strong>{assistantDisplayText(diary.ai_feedback.emotion_analysis.primary_emotion)}
                   </p>
                   <p className="text-gray-700">
                     <strong>情绪强度：</strong>{diary.ai_feedback.emotion_analysis.emotion_intensity}/10
@@ -287,7 +288,7 @@ export default function DiaryDetailPage() {
                   {diary.ai_feedback.life_quality.map((comment: string, index: number) => (
                     <li key={index} className="text-gray-700 flex items-start">
                       <span className="mr-2">•</span>
-                      <span>{comment}</span>
+                      <span>{assistantDisplayText(comment)}</span>
                     </li>
                   ))}
                 </ul>
@@ -302,7 +303,7 @@ export default function DiaryDetailPage() {
                   {diary.ai_feedback.positive_highlights.map((highlight: string, index: number) => (
                     <li key={index} className="text-gray-700 flex items-start">
                       <span className="mr-2">✨</span>
-                      <span>{highlight}</span>
+                      <span>{assistantDisplayText(highlight)}</span>
                     </li>
                   ))}
                 </ul>
@@ -316,8 +317,8 @@ export default function DiaryDetailPage() {
                 <div className="space-y-3">
                   {diary.ai_feedback.recommendations.map((rec: any, index: number) => (
                     <div key={index} className="bg-white p-4 rounded-lg">
-                      <div className="font-semibold text-gray-800">{rec.title}</div>
-                      <div className="text-sm text-gray-600 mt-1">{rec.reason}</div>
+                      <div className="font-semibold text-gray-800">{assistantDisplayText(rec.title)}</div>
+                      <div className="text-sm text-gray-600 mt-1">{assistantDisplayText(rec.reason)}</div>
                       <button
                         className="mt-2 text-sm text-blue-600 hover:text-blue-800 font-semibold"
                         onClick={() => {

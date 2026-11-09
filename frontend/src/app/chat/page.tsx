@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { assistantDisplayText } from '@/lib/display-text';
 
 interface Message {
   id: number;
@@ -249,7 +250,7 @@ export default function ChatPage() {
           {messages.length === 0 && (
             <div className="text-center py-20">
               <div className="text-6xl mb-4">💭</div>
-              <p className="text-gray-600 text-lg">我是心翼，你的 24 小时心理陪伴助手</p>
+              <p className="text-gray-600 text-lg">我是你的 24 小时心理陪伴助手</p>
               <p className="text-gray-400 text-sm mt-2">无论你遇到什么困扰，我都会倾听并陪你一起面对</p>
             </div>
           )}
@@ -265,7 +266,7 @@ export default function ChatPage() {
                     <span className="text-3xl">🆘</span>
                     <div className="flex-1">
                       <div className="font-bold text-red-800 mb-2">检测到危机信号</div>
-                      <div className="text-red-700 whitespace-pre-wrap">{msg.content}</div>
+                      <div className="text-red-700 whitespace-pre-wrap">{assistantDisplayText(msg.content)}</div>
                     </div>
                   </div>
                 </div>
@@ -275,7 +276,7 @@ export default function ChatPage() {
                     <span className="text-3xl">✨</span>
                     <div className="flex-1">
                       <div className="font-bold text-green-800 mb-2">问题已解决</div>
-                      <div className="text-green-700 whitespace-pre-wrap">{msg.content}</div>
+                      <div className="text-green-700 whitespace-pre-wrap">{assistantDisplayText(msg.content)}</div>
                       <div className="text-sm text-green-600 mt-2">对话将在 3 秒后自动清空...</div>
                     </div>
                   </div>
@@ -293,7 +294,7 @@ export default function ChatPage() {
                   ) : msg.content ? (
                     <div className="prose prose-sm max-w-none prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-gray-100 prose-pre:border prose-pre:border-gray-300">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {msg.content}
+                        {assistantDisplayText(msg.content)}
                       </ReactMarkdown>
                     </div>
                   ) : (

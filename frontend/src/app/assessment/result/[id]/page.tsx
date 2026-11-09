@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { assistantDisplayText } from '@/lib/display-text';
 
 interface AssessmentResult {
   id: number;
@@ -183,7 +184,7 @@ export default function AssessmentResultPage() {
           <div className="bg-gray-50 rounded-xl p-6 mb-6">
             <h3 className="text-lg font-bold text-gray-800 mb-3">📝 结果解释</h3>
             <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">
-              {result.interpretation}
+              {assistantDisplayText(result.interpretation)}
             </p>
           </div>
 
@@ -195,7 +196,7 @@ export default function AssessmentResultPage() {
                 <span className={levelConfig.color}>建议与指导</span>
               </h3>
               <p className={`leading-relaxed whitespace-pre-wrap ${levelConfig.color}`}>
-                {result.suggestions}
+                {assistantDisplayText(result.suggestions)}
               </p>
             </div>
           )}

@@ -246,7 +246,7 @@ export default function GrowthPage() {
             >
               ← 返回
             </button>
-            <h1 className="text-3xl font-bold text-gray-800">💕 心翼之墙</h1>
+            <h1 className="text-3xl font-bold text-gray-800">💕 成长之墙</h1>
           </div>
 
           <select
