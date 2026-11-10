@@ -61,6 +61,13 @@
 .care-report section { margin:25px 0; }
 .care-report h2 { font-size:19px; font-weight:700; border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:14px; }
 .care-print-stamp { display:none; }
+.care-danger { border:3px solid #a51d28; border-left-width:9px; background:#fff3f3; color:#631521; padding:20px 24px; }
+.care-danger-heading { break-inside:avoid; }
+.care-danger-heading strong { display:block; font-size:23px; font-weight:800; line-height:1.45; }
+.care-danger-heading p { font-size:20px; font-weight:700; margin:8px 0 16px; }
+.care-danger ol { padding-left:22px; }
+.care-danger-source { break-inside:avoid; padding:8px 0; }
+.care-danger blockquote { border-left:3px solid #a51d28; margin:8px 0; padding:6px 14px; background:white; color:#49101a; font-weight:700; white-space:pre-wrap; overflow-wrap:anywhere; }
 .care-root .care-empty { color:var(--muted); padding:20px 0; }
 @media(max-width:700px) { .care-grid { grid-template-columns:1fr; } .care-main { padding:25px 16px; } .care-title { font-size:25px; } .care-card,.care-report { padding:18px; } .care-nav a { padding:12px; } .care-session { align-items:flex-start; flex-direction:column; } .care-top { align-items:flex-start; } }
 @page { size:A4; margin:18mm 16mm 20mm; }
@@ -90,6 +97,9 @@
   .care-report[data-data-nature="empty"] { page:care-summary-empty; }
   .care-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
   .care-report h1 { font-size:22pt; }
+  .care-report .care-danger { border:3px solid #81131d; border-left-width:7px; padding:12pt; background:#fff3f3 !important; color:#49101a !important; }
+  .care-danger-heading strong { font-size:17pt; }
+  .care-danger-heading p { font-size:14pt; }
   .care-report h2 { break-after:avoid; font-size:13pt; }
   .care-report h3 { break-after:avoid; }
   .care-report section { margin:16px 0; }

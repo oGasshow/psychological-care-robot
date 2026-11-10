@@ -55,6 +55,7 @@ export default function LoginPage() {
       if (isLogin) {
         // 登录成功：保存 token
         localStorage.setItem('access_token', data.access_token);
+        sessionStorage.removeItem('care-report-scope');
         localStorage.removeItem('username');
         router.push('/robot-care');
       } else {

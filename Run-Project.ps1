@@ -1,7 +1,14 @@
-﻿param([switch]$ApiOnly, [switch]$Stop, [switch]$NoBrowser)
+﻿param([switch]$ApiOnly, [switch]$Stop, [switch]$NoBrowser, [switch]$Clean)
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $runtimeRoot = Join-Path $projectRoot 'runtime/direct_start'
+$activePointer = Join-Path $projectRoot 'runtime/active_runtime.txt'
+if (Test-Path -LiteralPath $activePointer) {
+    $candidateRoot = [IO.Path]::GetFullPath([IO.File]::ReadAllText($activePointer).Trim())
+    $allowedRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'runtime')) + [IO.Path]::DirectorySeparatorChar
+    if (-not $candidateRoot.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid runtime pointer.' }
+    $runtimeRoot = $candidateRoot
+}
 $pythonTool = Join-Path $projectRoot '.venv/Scripts/python.exe'
 $demoTool = Join-Path $projectRoot 'backend/tools/demo_care.py'
 $env:PYTHONUTF8 = '1'
@@ -31,6 +38,13 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'frontend/node_modules/next/dist/bin/next'))) {
             throw 'Frontend dependencies are missing. Run Setup-Project.ps1 first.'
         }
+    }
+    if ($Clean) {
+        if (Test-Path -LiteralPath (Join-Path $runtimeRoot 'pids.json')) { Invoke-Demo 'stop' }
+        $runtimeRoot = Join-Path $projectRoot ('runtime/presentation_' + [DateTime]::Now.ToString('yyyyMMdd_HHmmss_fff'))
+        & $pythonTool $demoTool prepare --runtime $runtimeRoot --empty
+        if ($LASTEXITCODE -ne 0) { throw 'Clean presentation preparation failed.' }
+        [IO.File]::WriteAllText($activePointer, $runtimeRoot)
     }
     if (-not (Test-Path -LiteralPath (Join-Path $runtimeRoot 'access.json'))) {
         Invoke-Demo 'prepare'
@@ -65,6 +79,7 @@ try {
     $access = Get-Content -LiteralPath (Join-Path $runtimeRoot 'access.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $apiAddress = 'http://127.0.0.1:' + $access.backend_port
     $webAddress = 'http://127.0.0.1:' + $access.frontend_port + '/robot-care'
+    if ($Clean) { $webAddress = 'http://127.0.0.1:' + $access.frontend_port + '/login' }
     Write-Host ''
     Write-Host ('API docs: ' + $apiAddress + '/docs') -ForegroundColor Green
     if (-not $ApiOnly) { Write-Host ('Web:      ' + $webAddress) -ForegroundColor Green }

@@ -108,6 +108,27 @@ def report(db,uid,scope):
             RecordMessage.occurred_at<scope.time_to).distinct().order_by(RecordSession.id).all()
     result=trends_data(db,uid,selected=selected,time_from=scope.time_from,time_to=scope.time_to,include_assessments=selected is None)
     rows=result.pop('records')
+    # Evaluate the current effective user text independently of job/model state.
+    # A negative emotion or an assessment score never triggers this warning.
+    from care_core import safety
+    danger_sources=[]
+    unclear=0
+    for row in rows:
+        if row.role!='user' or row.text_status!='completed':
+            continue
+        draft=effective(db,row)
+        signal=safety(draft['effective_content'])
+        unclear+=signal['safety_signal']=='undetermined'
+        if signal['safety_signal']=='explicit_danger_expression':
+            danger_sources.append(dict(record_id=row.id,recording_session_id=row.recording_session_id,
+                occurred_at=row.occurred_at,input_revision=draft['input_revision'],
+                is_test=next(source['is_test'] for source in result['source_references'] if source['record_id']==row.id),
+                expressions=signal.get('matched_expressions',[]),rule_ids=signal['matched_rule_ids']))
+    danger_notice=dict(status='explicit_danger_expression' if danger_sources else 'not_detected',
+        count=len(danger_sources),sources=danger_sources,unclear_count=unclear,
+        basis='当前范围内用户已完成对话的有效稿；明确危险表达规则，排除否认、引用和他人转述。',
+        action='请优先安排人工关注与核实，不能仅凭本报告作诊断或自动采取处置。',
+        limitation='未检出规则内明确危险表达不代表无风险；普通消极情绪和量表分数不触发本提示。')
     session_values=[session_status(db,row) for row in sessions]
     warnings=[]
     if selected is not None:
@@ -130,7 +151,7 @@ def report(db,uid,scope):
         suggestions.append('如果愿意，可以先谈一件最想被理解的事，或尝试舒适、自然的短暂放松。')
     return dict(schema_version='1.0',**profile(db,uid),generated_at=now(),scope=scope.model_dump(exclude_none=True),
         **result,sessions=session_values,simulation_notice='模拟数据演示' if result['is_test'] else None,
-        nature_notice=NATURE,warnings=warnings,suggestions=suggestions,
+        nature_notice=NATURE,warnings=warnings,suggestions=suggestions,danger_notice=danger_notice,
         assessment_time_source='confirmed_completed_at',dialogue_time_source='source_occurred_at',
         messages=[dict(record_id=row.id,recording_session_id=row.recording_session_id,sequence_no=row.sequence_no,role=row.role,
             text_status=row.text_status,playback_status=row.playback_status,occurred_at=row.occurred_at,received_at=row.received_at,is_test=source_flags[row.id],

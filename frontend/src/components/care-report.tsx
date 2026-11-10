@@ -10,12 +10,13 @@ import {assistantDisplayText} from '@/lib/display-text';
 function describe(v:unknown):string { return typeof v==='string' ? v : typeof v==='object' && v!==null ? JSON.stringify(v) : String(v??'未提供'); }
 function signature(data:Data):string { const copy={...data}; delete copy.generated_at; delete copy.data_as_of; return JSON.stringify(copy); }
 function beijingInput(value:string):string { const parsed=new Date(value); return Number.isNaN(parsed.valueOf())?'':new Date(parsed.valueOf()+8*3600000).toISOString().slice(0,19); }
+function currentMonthWindow(next=false):string { const value=new Date(Date.now()+8*3600000); if(next)value.setUTCMonth(value.getUTCMonth()+1,1); return `${value.toISOString().slice(0,7)}-01T00:00`; }
 
 export default function ReportPage({printMode=false}:{printMode?:boolean}) {
   const [mode,setMode]=useState('time');
   const [ids,setIds]=useState('');
-  const [from,setFrom]=useState('2026-10-01T00:00');
-  const [to,setTo]=useState('2026-11-01T00:00');
+  const [from,setFrom]=useState(()=>currentMonthWindow());
+  const [to,setTo]=useState(()=>currentMonthWindow(true));
   const [scope,setScope]=useState<Data|null>(null);
   const [dto,setDto]=useState<Data|null>(null);
   const [error,setError]=useState<unknown>(null);
@@ -65,6 +66,7 @@ function ReportBody({dto}:{dto:Data}) {
   return <article className="care-report" data-testid="report-dto" data-is-test={dto.is_test===true?'true':'false'} data-data-nature={nature} data-generated-at={dto.generated_at}>
     <div className="care-print-stamp" data-testid="report-print-nature">{dataNatureText(nature)} · 辅助陪伴记录摘要 · 非诊断用途{nature==='non_test_only'?' · 标志不代表真实来源已验证':''}</div>
     <div className="care-eyebrow">辅助陪伴记录摘要</div><h1 className="care-title">陪伴与量表报告</h1>
+    <DangerNotice data={dto.danger_notice}/>
     <div className="care-notice care-warning" data-testid="report-nature-notice"><strong>{dataNatureText(nature)}</strong><p>{dataNatureDescription(nature)}</p></div>
     <p><strong>匿名展示编号：{dto.anonymous_id || dto.anonymous_code}</strong></p><p className="care-meta">报告生成：{date(dto.generated_at)}<br/>数据截至：{date(dto.data_as_of)}<br/>报告结构版本：{dto.schema_version || '1.0'}</p>
     <section><h2>统计范围与记录完整性</h2>{dto.scope?.session_ids?<p>指定会话：{dto.scope.session_ids.map((id:number)=>`#${id}`).join('、')}。未关联量表，未纳入本报告。</p>:<p>时间窗口（左闭右开）：{date(dto.scope?.time_from)} 至 {date(dto.scope?.time_to)}。对话按原始发生时间、量表按已确认完成时间筛选。</p>}{list(dto.sessions).map((s,i)=><p key={i}>会话 #{s.recording_session_id} · {label(s.state)} · {s.is_complete?'记录已收齐':'记录尚未收齐，结果不完整'} · 已保存 {s.received_record_count??'未提供'} 条 <DataNatureBadge isTest={s.is_test}/></p>)}</section>
@@ -76,6 +78,22 @@ function ReportBody({dto}:{dto:Data}) {
     <section><h2>数据缺失与说明</h2>{list(dto.warnings).length?dto.warnings.map((w:unknown,i:number)=><p className="care-text" key={i}>{describe(w)}</p>):<p>以本次来源核验结果为准。真实模型、真实语音与量表有效性须分别验证。</p>}<p>{dto.nature_notice || natureNotice}</p>{list(dto.assessments).some(a=>a.source_kind==='fixture')&&<p>fixture 的“已验证”仅指虚构演示数据的契约有效；适用范围为 demo_only，不能代替正式内容审核与适老确认。</p>}</section>
     <section><h2>来源 ID 与版本</h2>{list(dto.source_references).length?<div className="care-table-wrap"><table><thead><tr><th>来源属性</th><th>来源引用（保留记录与输入版本）</th></tr></thead><tbody>{dto.source_references.map((s:Data,i:number)=><tr key={i}><td><DataNatureBadge isTest={s.is_test}/></td><td className="care-text care-meta">{describe(s)}</td></tr>)}</tbody></table></div>:<p>本范围暂无有效来源引用。</p>}</section>
   </article>;
+}
+
+function DangerNotice({data}:{data:Data|undefined}) {
+  if(!data)return null;
+  const sources=list(data.sources);
+  if(data.status!=='explicit_danger_expression'||!sources.length)return <p className="care-notice" data-testid="report-danger-clear">{data.limitation}</p>;
+  return <section className="care-danger" data-testid="report-danger-alert" aria-label="明确危险表达提示">
+    <div className="care-danger-heading"><strong>重要风险提示：对话中出现明确危险表达</strong><p>请优先安排人工关注与核实</p></div>
+    <p>本次范围内有 <strong>{sources.length}</strong> 条当前有效用户对话触发明确危险表达规则。此提示不由普通消极情绪或量表分数触发。</p>
+    <p>{data.action}</p>
+    <ol>{sources.map((source:Data,i:number)=><li className="care-danger-source" key={source.record_id||i}>
+      <p><strong>对话依据 #{source.record_id}</strong> · 会话 #{source.recording_session_id} · 输入修订 {source.input_revision} · {date(source.occurred_at)} <DataNatureBadge isTest={source.is_test}/></p>
+      {list(source.expressions).map((value:unknown,j:number)=><blockquote key={j}>{String(value)}</blockquote>)}
+    </li>)}</ol>
+    <p className="care-meta">仅依据当前有效稿中的明确表达；引用、他人转述与否认不按明确危险表达计入。提示需要人工核实，不作临床风险等级判断。</p>
+  </section>;
 }
 
 function EmotionCounts({dto}:{dto:Data}) {

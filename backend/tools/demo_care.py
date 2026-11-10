@@ -250,12 +250,12 @@ def port():
         sock.bind(('127.0.0.1',0))
         return sock.getsockname()[1]
 
-def prepare(root):
+def prepare(root,empty=False):
     root=root.resolve()
     if root.exists() and any(root.iterdir()):
         raise ValueError('Choose a new empty dedicated demo directory')
     root.mkdir(parents=True,exist_ok=True)
-    cfg={'marker':'module236-synthetic-demo-v1','runtime_id':secrets.token_hex(24),'backend_port':port(),'frontend_port':port(),
+    cfg={'marker':'module236-synthetic-demo-v1','seed_sample_data':not empty,'runtime_id':secrets.token_hex(24),'backend_port':port(),'frontend_port':port(),
          'database':str(root/'demo.db'),'fixture':str(root/'assessments.json'),'secret':secrets.token_urlsafe(48),
          'users':[{'username':'virtual_care_a','password':secrets.token_urlsafe(18)},
                   {'username':'virtual_care_b','password':secrets.token_urlsafe(18)}]}
@@ -265,7 +265,7 @@ def prepare(root):
 def environment(root,cfg):
     return dict(os.environ,PYTHONUTF8='1',APP_ENV='development',DATABASE_URL='sqlite:///'+Path(cfg['database']).as_posix(),
         SECRET_KEY=cfg['secret'],SQLITE_BUSY_MS='1000',MODELSCOPE_API_KEY='',ROBOT_CARE_ANALYSIS_ENGINE='rules',ROBOT_UPLOAD_POLICY='after_close',
-        ROBOT_CARE_ASSESSMENT_PROVIDER='fixture',ROBOT_CARE_DEMO_DATABASE='true',ROBOT_CARE_FIXTURE_FILE=cfg['fixture'],
+        ROBOT_CARE_ASSESSMENT_PROVIDER='fixture' if cfg.get('seed_sample_data',True) else 'disabled',ROBOT_CARE_DEMO_DATABASE='true',ROBOT_CARE_FIXTURE_FILE=cfg['fixture'],
         ROBOT_CARE_SIMULATOR_ENABLED='true')
 
 def wait_backend(base,proc):
@@ -318,7 +318,17 @@ def start(root,cfg,frontend=True):
         capture_children(procs[0],root,cfg)
         write_json(root/'pids.json',procs)
         if fresh:
-            seed(base,cfg,fixture)
+            if cfg.get('seed_sample_data',True):
+                seed(base,cfg,fixture)
+            else:
+                cfg['session_ids']=[]
+                with httpx.Client(base_url=base,trust_env=False,timeout=5) as client:
+                    for user in cfg['users']:
+                        response=client.post('/api/auth/register',json={k:user[k] for k in ('username','password')})
+                        response.raise_for_status()
+                        response=client.post('/api/auth/login',json={k:user[k] for k in ('username','password')})
+                        response.raise_for_status()
+                        user['token']=response.json()['access_token']
             Path(cfg['fixture']).write_text(json.dumps(fixture,ensure_ascii=False,indent=2),encoding='utf-8')
         else:
             with httpx.Client(base_url=base,trust_env=False,timeout=5) as client:
@@ -353,7 +363,7 @@ def start(root,cfg,frontend=True):
         # Give the persistent worker a bounded opportunity to finish seed analysis.
         with httpx.Client(base_url=base,trust_env=False,timeout=5) as client:
             h={'Authorization':'Bearer '+cfg['users'][0]['token']}
-            for _ in range(200):
+            for _ in range(200 if cfg.get('session_ids') else 0):
                 s=client.get(f'/api/robot-insights/sessions/{cfg["session_ids"][0]}/summary',headers=h).json()
                 if not any(s['analysis_counts'][k] for k in ('pending','running','retry_wait')):
                     break
@@ -483,10 +493,11 @@ def main():
     parser.add_argument('action',choices=['prepare','start','stop'])
     parser.add_argument('--runtime',type=Path,required=True)
     parser.add_argument('--no-frontend',action='store_true')
+    parser.add_argument('--empty',action='store_true',help='Prepare accounts only, without sample records or assessments')
     args=parser.parse_args()
     root=args.runtime.resolve()
     if args.action=='prepare':
-        prepare(root)
+        prepare(root,empty=args.empty)
         return
     cfg=json.loads((root/'access.json').read_text(encoding='utf-8'))
     if cfg.get('marker')!='module236-synthetic-demo-v1' or Path(cfg['database']).parent!=root:
