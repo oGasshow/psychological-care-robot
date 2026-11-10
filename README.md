@@ -33,7 +33,7 @@
 Windows 安装依赖后，可直接双击根目录中的脚本：
 
 - [Start-Project.cmd](Start-Project.cmd)：恢复固定汇报对话，启动接口、分析 worker 和网页。
-- [Start-Presentation.cmd](Start-Presentation.cmd)：同上，每次恢复 3 段、共 12 条虚构对话：日常积极、孤独担忧、明确危险表达。
+- [Start-Presentation.cmd](Start-Presentation.cmd)：同上，每次恢复 3 段、共 12 条虚构对话：日常积极、孤独担忧、明确危险表达，并恢复最初的 3 条虚构量表结果（5、7、4 分；demo-v1、demo-v1、demo-v2；原始 2026 年 10 月完成时间）。报告未保存范围时，默认起始月会覆盖这些演示量表，仍可自行调整范围。
 - [Resume-Project.cmd](Resume-Project.cmd)：继续最近一次运行的数据，不清空。
 - [Start-API.cmd](Start-API.cmd)：仅启动接口和分析 worker，打开接口文档。
 - [Stop-Project.cmd](Stop-Project.cmd)：停止上述脚本启动的服务。

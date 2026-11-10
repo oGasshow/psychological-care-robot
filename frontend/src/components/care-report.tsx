@@ -24,7 +24,15 @@ export default function ReportPage({printMode=false}:{printMode?:boolean}) {
   const [message,setMessage]=useState('');
   useEffect(()=>{
     const timer=window.setTimeout(()=>{
-    try { const saved=JSON.parse(sessionStorage.getItem('care-report-scope')||'null'); if(saved){setScope(saved);if(saved.session_ids){setMode('sessions');setIds(saved.session_ids.join(','));}else if(saved.time_from&&saved.time_to){setFrom(beijingInput(saved.time_from));setTo(beijingInput(saved.time_to));}void request(saved,false);} }
+    try { const saved=JSON.parse(sessionStorage.getItem('care-report-scope')||'null'); if(saved){setScope(saved);if(saved.session_ids){setMode('sessions');setIds(saved.session_ids.join(','));}else if(saved.time_from&&saved.time_to){setFrom(beijingInput(saved.time_from));setTo(beijingInput(saved.time_to));}void request(saved,false);} else {
+      // Keep original demo completion dates visible alongside today's dialogues.
+      void insights('assessments').then(data=>{
+        const months=list(data.items).filter(item=>item.is_test===true&&item.verification_status==='verified_fixture')
+          .map(item=>beijingInput(item.completed_at).slice(0,7)).filter(Boolean).sort();
+        const earliest=months[0];
+        if(earliest&&earliest<currentMonthWindow().slice(0,7))setFrom(current=>current===currentMonthWindow()?`${earliest}-01T00:00`:current);
+      }).catch(()=>{/* The report request surfaces provider failures. */});
+    } }
     catch{setMessage('请重新选择报告范围。');}
     },0);
     return()=>window.clearTimeout(timer);

@@ -320,7 +320,7 @@ def start(root,cfg,frontend=True):
         write_json(root/'pids.json',procs)
         if fresh:
             if cfg.get('sample_profile')=='presentation':
-                seed_presentation(base,cfg)
+                seed_presentation(base,cfg,fixture)
             elif cfg.get('seed_sample_data',True):
                 seed(base,cfg,fixture)
             else:
@@ -388,7 +388,7 @@ def shutil_which(name):
         raise RuntimeError('required_runtime_missing')
     return value
 
-def seed_presentation(base,cfg):
+def seed_presentation(base,cfg,fixture):
     """Fixed fictional baseline, never reimported when resuming this runtime."""
     scripts=[
         ['今天和朋友散步，我很开心。','愿意讲讲今天最开心的片段吗？','我很期待下一次见面。','可以把这段愉快的感受记录下来。'],
@@ -402,6 +402,9 @@ def seed_presentation(base,cfg):
             r=client.post('/api/auth/login',json={k:user[k] for k in ('username','password')});r.raise_for_status();user['token']=r.json()['access_token']
             if index:continue
             headers={'Authorization':'Bearer '+user['token']}
+            r=client.get('/api/auth/me',headers=headers);r.raise_for_status()
+            user['owner_user_id']=r.json()['id']
+            seed_assessments(fixture,user['owner_user_id'])
             for number,lines in enumerate(scripts,1):
                 stamp=datetime.now(timezone.utc).isoformat()
                 r=client.post('/api/robot-records/sessions',headers=headers,json=dict(source='doubao_realtime',device_id='presentation_demo',external_session_id=f'presentation_{number}',started_at=stamp,is_test=True));r.raise_for_status();sid=r.json()['recording_session_id'];cfg['session_ids'].append(sid)
@@ -409,6 +412,15 @@ def seed_presentation(base,cfg):
                     user_role=sequence%2==1
                     r=client.post(f'/api/robot-records/sessions/{sid}/messages',headers=headers,json=dict(external_message_id=f'message_{sequence}',turn_id=f'turn_{(sequence+1)//2}',sequence_no=sequence,role='user' if user_role else 'assistant',content=content,occurred_at=stamp,text_status='completed',playback_status='not_applicable' if user_role else 'not_started'));r.raise_for_status()
                 r=client.post(f'/api/robot-records/sessions/{sid}/close',headers=headers,json=dict(ended_at=stamp,last_sequence_no=len(lines)));r.raise_for_status()
+
+def seed_assessments(fixture,uid):
+    """Original fictional results; preserve historical versions, scores and dates."""
+    for index,(date,score,version) in enumerate([('2026-10-20T10:00:00+08:00',5,'demo-v1'),('2026-10-27T10:00:00+08:00',7,'demo-v1'),('2026-10-28T10:00:00+08:00',4,'demo-v2')],1):
+        fixture['records'].append(dict(owner_user_id=uid,source_record_id=f'fixture:user{uid}_{index}',is_test=True,
+            scale_name='demo_wellbeing',display_name='虚构展示量表（非实际评估）',scale_version=version,scoring_version=version,
+            interpretation_version='demo-draft-v1',completed_at=date,total_score=score,score_min=0,score_max=10,
+            reference_interpretation='虚构分数用于演示数值展示，不表示心理状态或疾病。',suggestions='可以选择与信任的人分享日常感受。'))
+
 
 def seed(base,cfg,fixture):
     from robot_client import Outbox,Transport,Worker
@@ -450,11 +462,8 @@ def seed(base,cfg,fixture):
                 client.post(f'/api/robot-records/sessions/{missing}/close',headers=headers,json={'ended_at':'2026-10-28T00:01:00Z','last_sequence_no':2})
             finally:
                 transport.close()
-            for index,(date,score,version) in enumerate([('2026-10-20T10:00:00+08:00',5,'demo-v1'),('2026-10-27T10:00:00+08:00',7,'demo-v1'),('2026-10-28T10:00:00+08:00',4,'demo-v2')],1):
-                fixture['records'].append(dict(owner_user_id=uid,source_record_id=f'fixture:user{uid}_{index}',is_test=True,
-                    scale_name='demo_wellbeing',display_name='虚构展示量表（非实际评估）',scale_version=version,scoring_version=version,
-                    interpretation_version='demo-draft-v1',completed_at=date,total_score=score,score_min=0,score_max=10,
-                    reference_interpretation='虚构分数用于演示数值展示，不表示心理状态或疾病。',suggestions='可以选择与信任的人分享日常感受。'))
+            seed_assessments(fixture,uid)
+
 
 def stop(root,cfg):
     path=root/'pids.json'
