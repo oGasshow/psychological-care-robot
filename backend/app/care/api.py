@@ -1,4 +1,6 @@
-from typing import Annotated
+from typing import Annotated,Literal
+import os
+import hashlib
 from fastapi import APIRouter,Depends,Request,Response,Query
 from fastapi.responses import JSONResponse
 from pydantic import Field,StrictInt,model_validator,field_validator
@@ -46,6 +48,27 @@ class ReportScope(StrictBody):
 class ReportBody(StrictBody):
     scope:ReportScope
 
+class DemoLine(StrictBody):
+    role:Literal['user','assistant']
+    content:Annotated[str,Field(strict=True,min_length=1,max_length=8000)]
+    @field_validator('content')
+    @classmethod
+    def nonempty(cls,value):
+        if not value.strip():raise ValueError('nonempty_content_required')
+        value.encode('utf-8')
+        return value
+
+class DemoConversation(StrictBody):
+    request_id:ID
+    messages:Annotated[list[DemoLine],Field(min_length=1,max_length=40)]
+    @model_validator(mode='after')
+    def starts_with_user(self):
+        if self.messages[0].role!='user':raise ValueError('user_message_required')
+        return self
+
+def demo_enabled():
+    return settings().environment=='development' and os.getenv('ROBOT_CARE_DEMO_DATABASE')=='true'
+
 def check_query(request:Request):
     allowed={'limit','cursor'} if request.url.path.endswith('/analyses') else {'from','to'} if request.url.path.endswith('/trends') else set()
     if any(key not in allowed for key in request.query_params):
@@ -61,7 +84,31 @@ router=APIRouter(prefix='/api/robot-insights',tags=['Robot care 2.3/2.6'],depend
 @router.get('/profile')
 def get_profile(uid=Depends(owner)):
     with transaction(True) as db:
-        return profile(db,uid)
+        return dict(**profile(db,uid),demo_entry_enabled=demo_enabled())
+
+@router.post('/demo-conversations',status_code=201)
+def add_demo_conversation(body:DemoConversation,response:Response,uid=Depends(owner)):
+    if not demo_enabled():raise CareError(404,'not_found')
+    external='manual_'+hashlib.sha256(body.request_id.encode()).hexdigest()
+    with transaction(True) as db:
+        row=db.query(RecordSession).filter_by(user_id=uid,source='doubao_realtime',external_session_id=external).first()
+        if row:
+            if row.state=='deleted':raise CareError(410,'session_deleted')
+            saved=db.query(RecordMessage).filter_by(recording_session_id=row.id).order_by(RecordMessage.sequence_no).all()
+            if [(v.role,v.content) for v in saved]!=[(v.role,v.content) for v in body.messages]:raise CareError(409,'demo_request_conflict')
+            response.status_code=200
+            return dict(recording_session_id=row.id,is_test=True,duplicate=True)
+        stamp=now()
+        row=RecordSession(user_id=uid,source='doubao_realtime',device_id='manual_text_demo',external_session_id=external,
+            started_at=stamp,ended_at=stamp,created_at=stamp,state='closed',last_sequence_no=len(body.messages),is_test=True)
+        db.add(row);db.flush()
+        turn=0
+        for sequence,line in enumerate(body.messages,1):
+            if line.role=='user':turn+=1
+            db.add(RecordMessage(recording_session_id=row.id,external_message_id=f'manual_{sequence}',turn_id=f'turn_{turn}',
+                sequence_no=sequence,role=line.role,content=line.content,occurred_at=stamp,received_at=stamp,
+                text_status='completed',playback_status='not_applicable' if line.role=='user' else 'not_started'))
+        return dict(recording_session_id=row.id,is_test=True,duplicate=False)
 
 @router.post('/analysis-jobs',status_code=202,responses={200:{'description':'Same version task'}})
 def post_job(body:JobBody,response:Response,uid=Depends(owner)):

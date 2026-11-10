@@ -32,13 +32,13 @@
 
 Windows 安装依赖后，可直接双击根目录中的脚本：
 
-- [Start-Project.cmd](Start-Project.cmd)：新建空白汇报库，启动接口、分析 worker 和网页。
-- [Start-Presentation.cmd](Start-Presentation.cmd)：同上，汇报时干净启动，不注入样例记录或量表。
+- [Start-Project.cmd](Start-Project.cmd)：恢复固定汇报对话，启动接口、分析 worker 和网页。
+- [Start-Presentation.cmd](Start-Presentation.cmd)：同上，每次恢复 3 段、共 12 条虚构对话：日常积极、孤独担忧、明确危险表达。
 - [Resume-Project.cmd](Resume-Project.cmd)：继续最近一次运行的数据，不清空。
 - [Start-API.cmd](Start-API.cmd)：仅启动接口和分析 worker，打开接口文档。
 - [Stop-Project.cmd](Stop-Project.cmd)：停止上述脚本启动的服务。
 
-启动窗口显示实际访问地址和本机虚构演示账号；首次或前端源码变更后会重新构建，请等待完成。脚本使用项目自己的 `.venv`。每次干净启动使用独立的 `runtime/presentation_时间戳` 目录，只准备账号，旧数据库完整保留；停止脚本跟踪当前运行目录。继续同一次汇报的数据请使用 Resume-Project.cmd。未安装依赖时，先按以下步骤运行 Setup-Project.ps1。
+启动窗口显示实际访问地址和本机虚构演示账号；构建过程中请等待完成。脚本使用项目自己的 `.venv`。每次汇报启动使用独立的 `runtime/presentation_时间戳` 目录，恢复固定对话，不导入旧更正稿或现场操作残留；旧数据库完整保留。继续同一次汇报的数据请使用 Resume-Project.cmd。对话记录页的“新增演示对话”支持现场输入用户文字及可选的手动助手文字，保存后进入真实记录、后台规则分析和报告链路，所有内容标记为模拟数据，不调用真实模型。新增入口只在专用本地开发演示环境开放，生产环境禁用。未安装依赖时，先按以下步骤运行 Setup-Project.ps1。
 
 报告顶部单列明确危险表达提示，并列出当前有效用户对话中的触发表达、来源和修订版本；否认、引用、他人转述及普通消极情绪不按明确危险表达计入，量表分数不触发该提示。提示不依赖模型或分析任务完成，需要人工核实，不作临床风险等级判断。
 

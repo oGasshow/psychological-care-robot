@@ -42,7 +42,7 @@ try {
     if ($Clean) {
         if (Test-Path -LiteralPath (Join-Path $runtimeRoot 'pids.json')) { Invoke-Demo 'stop' }
         $runtimeRoot = Join-Path $projectRoot ('runtime/presentation_' + [DateTime]::Now.ToString('yyyyMMdd_HHmmss_fff'))
-        & $pythonTool $demoTool prepare --runtime $runtimeRoot --empty
+        & $pythonTool $demoTool prepare --runtime $runtimeRoot --presentation
         if ($LASTEXITCODE -ne 0) { throw 'Clean presentation preparation failed.' }
         [IO.File]::WriteAllText($activePointer, $runtimeRoot)
     }

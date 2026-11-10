@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import httpx
+from datetime import datetime,timezone
 
 BACKEND=Path(__file__).resolve().parents[1]
 PROJECT=BACKEND.parent
@@ -250,12 +251,12 @@ def port():
         sock.bind(('127.0.0.1',0))
         return sock.getsockname()[1]
 
-def prepare(root,empty=False):
+def prepare(root,empty=False,presentation=False):
     root=root.resolve()
     if root.exists() and any(root.iterdir()):
         raise ValueError('Choose a new empty dedicated demo directory')
     root.mkdir(parents=True,exist_ok=True)
-    cfg={'marker':'module236-synthetic-demo-v1','seed_sample_data':not empty,'runtime_id':secrets.token_hex(24),'backend_port':port(),'frontend_port':port(),
+    cfg={'marker':'module236-synthetic-demo-v1','seed_sample_data':not empty,'sample_profile':'presentation' if presentation else 'legacy','runtime_id':secrets.token_hex(24),'backend_port':port(),'frontend_port':port(),
          'database':str(root/'demo.db'),'fixture':str(root/'assessments.json'),'secret':secrets.token_urlsafe(48),
          'users':[{'username':'virtual_care_a','password':secrets.token_urlsafe(18)},
                   {'username':'virtual_care_b','password':secrets.token_urlsafe(18)}]}
@@ -318,7 +319,9 @@ def start(root,cfg,frontend=True):
         capture_children(procs[0],root,cfg)
         write_json(root/'pids.json',procs)
         if fresh:
-            if cfg.get('seed_sample_data',True):
+            if cfg.get('sample_profile')=='presentation':
+                seed_presentation(base,cfg)
+            elif cfg.get('seed_sample_data',True):
                 seed(base,cfg,fixture)
             else:
                 cfg['session_ids']=[]
@@ -384,6 +387,28 @@ def shutil_which(name):
     if not value:
         raise RuntimeError('required_runtime_missing')
     return value
+
+def seed_presentation(base,cfg):
+    """Fixed fictional baseline, never reimported when resuming this runtime."""
+    scripts=[
+        ['今天和朋友散步，我很开心。','愿意讲讲今天最开心的片段吗？','我很期待下一次见面。','可以把这段愉快的感受记录下来。'],
+        ['最近孩子工作很忙，我感到孤独。','我愿意听你慢慢讲。','我也很担心家人，最近压力很大。','如果愿意，可以先说一件最希望被理解的事。'],
+        ['最近我觉得很难过。','我们可以慢慢说说发生了什么。','我不想活了。','这句话需要优先人工关注与核实，请联系身边可信赖的人协助获得支持。'],
+    ]
+    cfg['session_ids']=[]
+    with httpx.Client(base_url=base,trust_env=False,timeout=5) as client:
+        for index,user in enumerate(cfg['users']):
+            r=client.post('/api/auth/register',json={k:user[k] for k in ('username','password')});r.raise_for_status()
+            r=client.post('/api/auth/login',json={k:user[k] for k in ('username','password')});r.raise_for_status();user['token']=r.json()['access_token']
+            if index:continue
+            headers={'Authorization':'Bearer '+user['token']}
+            for number,lines in enumerate(scripts,1):
+                stamp=datetime.now(timezone.utc).isoformat()
+                r=client.post('/api/robot-records/sessions',headers=headers,json=dict(source='doubao_realtime',device_id='presentation_demo',external_session_id=f'presentation_{number}',started_at=stamp,is_test=True));r.raise_for_status();sid=r.json()['recording_session_id'];cfg['session_ids'].append(sid)
+                for sequence,content in enumerate(lines,1):
+                    user_role=sequence%2==1
+                    r=client.post(f'/api/robot-records/sessions/{sid}/messages',headers=headers,json=dict(external_message_id=f'message_{sequence}',turn_id=f'turn_{(sequence+1)//2}',sequence_no=sequence,role='user' if user_role else 'assistant',content=content,occurred_at=stamp,text_status='completed',playback_status='not_applicable' if user_role else 'not_started'));r.raise_for_status()
+                r=client.post(f'/api/robot-records/sessions/{sid}/close',headers=headers,json=dict(ended_at=stamp,last_sequence_no=len(lines)));r.raise_for_status()
 
 def seed(base,cfg,fixture):
     from robot_client import Outbox,Transport,Worker
@@ -494,10 +519,12 @@ def main():
     parser.add_argument('--runtime',type=Path,required=True)
     parser.add_argument('--no-frontend',action='store_true')
     parser.add_argument('--empty',action='store_true',help='Prepare accounts only, without sample records or assessments')
+    parser.add_argument('--presentation',action='store_true',help='Prepare a fixed set of fictional presentation dialogues')
     args=parser.parse_args()
     root=args.runtime.resolve()
     if args.action=='prepare':
-        prepare(root,empty=args.empty)
+        if args.empty and args.presentation:parser.error('Choose empty or presentation')
+        prepare(root,empty=args.empty,presentation=args.presentation)
         return
     cfg=json.loads((root/'access.json').read_text(encoding='utf-8'))
     if cfg.get('marker')!='module236-synthetic-demo-v1' or Path(cfg['database']).parent!=root:
