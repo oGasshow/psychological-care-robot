@@ -16,7 +16,9 @@ from . import upstream
 from .settings import settings
 from .recording import Recorder, internal_base, retry
 from .transcripts import Transcripts, Utterance, utc_now
-from .screening import Screening, ScreeningResult, save_result
+from .screening import Screening, ScreeningResult, save_result, has_collected_items
+from .screening_policy import CollectionPolicy, collection_policy
+from .screening_monitor import ScreeningMonitor
 
 router=APIRouter(prefix='/api/robot-voice',tags=['Doubao voice'])
 ACTIVE=set()
@@ -27,13 +29,14 @@ class Authenticate(BaseModel):
     type:Literal['authenticate']
     token:Annotated[str,Field(min_length=10,max_length=8192)]
     device_id:Annotated[str,Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')]='browser_audio'
-    guided_screening:bool=False
+    guided_screening:bool|None=None  # Accepted for older clients; not an authorization gate.
 
 class ConcernSignal(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
     session_id:Annotated[str,Field(min_length=1,max_length=100)]
     evidence_ids:Annotated[list[str],Field(min_length=1,max_length=20)]
     detector_version:Annotated[str,Field(min_length=1,max_length=100)]
+    target_scales:Annotated[list[Literal['PHQ-9','GAD-7']],Field(min_length=1,max_length=2)]=['PHQ-9','GAD-7']
 
 @router.post('/screening-signal')
 async def screening_signal(body:ConcernSignal,uid=Depends(owner)):
@@ -54,7 +57,7 @@ def screening_result(sid:int,response:Response,uid=Depends(owner)):
     with SessionLocal() as db:
         owned(db,sid,uid)
         value=db.get(ScreeningResult,sid)
-        return dict(result=value.payload if value and value.owner==uid else None)
+        return dict(result=value.payload if value and value.owner==uid and has_collected_items(value.payload) else None)
 
 def test_data():
     return os.getenv('APP_ENV','production')!='production' or os.getenv('ROBOT_CARE_DEMO_DATABASE')=='true'
@@ -68,8 +71,11 @@ def config(response:Response,uid=Depends(owner)):
         limit=cfg.session_seconds
     except (ValueError,TypeError):
         enabled,limit=False,900
+    try:conditional_enabled=collection_policy().enabled
+    except (ValueError,TypeError):conditional_enabled=False
     return dict(enabled=enabled,input_rate=16000,output_rate=24000,frame_bytes=640,
                 session_seconds=limit,is_test=test_data(),protocol='voice-bridge-v1',
+                conditional_collection_enabled=conditional_enabled,
                 message='可以开始语音对话。' if enabled else '语音服务尚未配置，请联系项目维护人员。')
 
 @router.post('/retry-records')
@@ -112,7 +118,9 @@ async def live(ws:WebSocket):
         raw=await asyncio.wait_for(ws.receive_text(),8)
         if len(raw)>10000:raise ValueError('invalid_authentication_frame')
         auth=Authenticate.model_validate_json(raw)
-        controller=Screening(auth.guided_screening)
+        try:policy=collection_policy()
+        except (ValueError,TypeError):policy=CollectionPolicy(False,'','doubao_realtime')
+        controller=Screening(policy.enabled,policy.notice_version)
         uid=await asyncio.to_thread(authenticate_token,auth.token)
         if uid in ACTIVE:
             await emit(dict(type='error',code='voice_session_active',message='已有语音会话正在进行，请先结束另一处会话。'));return
@@ -138,8 +146,9 @@ async def live(ws:WebSocket):
             async def receive_control():
                 while True:
                     signal=await queue.get()
-                    controller.concern(signal.evidence_ids,signal.detector_version)
+                    controller.concern(signal.evidence_ids,signal.detector_version,signal.target_scales)
                     await update_policy()
+            monitor=ScreeningMonitor(controller,update_policy,provider=policy.detector,emit=emit)
             if controller.enabled:await update_policy()
             await emit(dict(type='session.ready',session_id=recorder.external,input_rate=16000,output_rate=24000,
                             is_test=test_data(),protocol='voice-bridge-v1'))
@@ -168,6 +177,7 @@ async def live(ws:WebSocket):
                         if public['type']=='transcript.final':
                             await persist(entry)
                             version=controller.version;controller.observe(entry)
+                            monitor.observe(entry)
                             if version!=controller.version:await update_policy()
                         await emit(public)
                     if kind=='response.output_audio.delta' and entry and not entry.interrupted:
@@ -200,13 +210,11 @@ async def live(ws:WebSocket):
                     if kind=='finish':finishing.set();return
                     if kind=='screening.action':
                         action=command.get('action')
-                        if action not in ('ready','consent','decline','pause'):raise ValueError('invalid_screening_action')
+                        if action not in ('decline','pause'):raise ValueError('invalid_screening_action')
                         line=Utterance('screening_action_'+__import__('uuid').uuid4().hex,'user','screening_control',
-                            text={'ready':'我现在准备好继续交流了。','consent':'我愿意以对话方式回顾最近两周的PHQ-9和GAD-7相关信息，可以随时停止。',
-                                  'decline':'我不想继续信息采集。','pause':'我想先暂停信息采集。'}[action],final=True,occurred_at=utc_now())
+                            text={'decline':'我不想继续信息采集。','pause':'我想先暂停信息采集。'}[action],final=True,occurred_at=utc_now())
                         await persist(line);await emit(line.public(True))
                         controller.action(action)
-                        if action=='consent' and controller.stage=='collecting':controller.consent_ids.append(line.message_id)
                         await update_policy();continue
                     if kind=='interrupt':await interrupt('manual')
                     elif kind in ('mute','unmute'):
@@ -223,8 +231,9 @@ async def live(ws:WebSocket):
             client=asyncio.create_task(receive_client())
             deadline=asyncio.create_task(asyncio.sleep(cfg.session_seconds))
             control=asyncio.create_task(receive_control())
+            detector=asyncio.create_task(monitor.run())
             try:
-                done,_=await asyncio.wait([receiver,client,deadline,control],return_when=asyncio.FIRST_COMPLETED)
+                done,_=await asyncio.wait([receiver,client,deadline,control,detector],return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     if task is not deadline and not task.cancelled() and task.exception():raise task.exception()
                 if deadline in done:await emit(dict(type='status',state='time_limit',message='本次语音已到时限，正在保存记录。'))
@@ -237,8 +246,8 @@ async def live(ws:WebSocket):
                     await remote.send(json.dumps({'type':'session.close'}))
                     with suppress(TimeoutError):await asyncio.wait_for(asyncio.shield(receiver),2)
             finally:
-                for task in (receiver,client,deadline,control):task.cancel()
-                await asyncio.gather(receiver,client,deadline,control,return_exceptions=True)
+                for task in (receiver,client,deadline,control,detector):task.cancel()
+                await asyncio.gather(receiver,client,deadline,control,detector,return_exceptions=True)
     except RecordError:
         await emit(dict(type='error',code='authentication_required',message='登录已失效，请重新登录。'))
     except (ValidationError,ValueError,TypeError,KeyError):

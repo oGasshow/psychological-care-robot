@@ -31,7 +31,7 @@ def test_A27_additive_upgrade_native_regression_and_wal_backup(tmp_path,monkeypa
     legacy_path=tmp_path/'legacy.db'
     upgraded_path=tmp_path/'upgraded.db'
     legacy_engine=create_engine('sqlite:///'+legacy_path.as_posix())
-    old_tables=[t for name,t in Base.metadata.tables.items() if not name.startswith('robot_record_')]
+    old_tables=[t for name,t in Base.metadata.tables.items() if not name.startswith(('robot_record_','robot_voice_'))]
     Base.metadata.create_all(legacy_engine,tables=old_tables)
     Legacy=sessionmaker(bind=legacy_engine)
     with Legacy() as db:
@@ -53,6 +53,8 @@ def test_A27_additive_upgrade_native_regression_and_wal_backup(tmp_path,monkeypa
     run_manage(['backup','--db',legacy_path,'--output',upgraded_path],trace)
     for _ in range(2):
         run_manage(['upgrade','--db',upgraded_path],trace)
+    with sqlite3.connect(upgraded_path) as checked:
+        assert checked.execute('SELECT count(*) FROM robot_voice_screening_results').fetchone()[0]==0
     assert rows(upgraded_path,table_names)==before
     trace.append({'legacy_data_unchanged_after_two_upgrades':True,'old_table_counts':{k:len(v) for k,v in before.items()}})
     upgraded_engine=create_engine('sqlite:///'+upgraded_path.as_posix(),connect_args={'check_same_thread':False})

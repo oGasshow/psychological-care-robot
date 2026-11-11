@@ -81,6 +81,16 @@ async def connection(config=None, *, instructions=COMPANION_PROMPT, tools=None):
         raise VoiceServiceError('voice_service_unavailable') from None
 
 async def structured_report(instructions, schema, facts, timeout=45):
+    shape = ('overview 必须是含 text 和 evidence_ids 的对象，不能是字符串。'
+             'changes、topics、conversation_suggestions、limitations 的每个元素也须含 text 和 evidence_ids，不能使用 content。'
+             '建议和限制也要引用支持表述的事实id。没有可比条件时 changes 返回空数组。')
+    return await structured_tool(instructions+'\n'+shape, schema, facts, timeout,
+                                 name='write_companionship_report',
+                                 description='将给定事实整理成有引用依据的中文陪伴记录摘要。直接提交结构化报告。')
+
+
+async def structured_tool(instructions, schema, facts, timeout=45, *, name, description,
+                          trigger_asset='report_trigger.wav'):
     """Use the supplied speech entitlement via a synthetic trigger and FC output.
 
     No microphone or speaker is opened, and this private service session never
@@ -89,7 +99,7 @@ async def structured_report(instructions, schema, facts, timeout=45):
     # This speech tool implementation needs inline property definitions; $ref
     # produced plausible text with the wrong object shape in the live probe.
     definitions = schema.get('$defs', {})
-    allowed = [item['id'] for item in facts['facts'] + facts['evidence']]
+    allowed = [item['id'] for item in facts.get('facts', []) + facts.get('evidence', [])]
     def inline(value):
         if isinstance(value, list):
             return [inline(item) for item in value]
@@ -102,17 +112,13 @@ async def structured_report(instructions, schema, facts, timeout=45):
             result['properties']['evidence_ids']['items']['enum'] = allowed
         return result
     parameters = inline(schema)
-    tool = dict(type='function', name='write_companionship_report',
-                description='将给定事实整理成有引用依据的中文陪伴记录摘要。所有文字字段均为含 text 和 evidence_ids 的对象。直接提交结构化报告。', parameters=parameters)
-    prompt = (instructions + '\n本会话专用于整理报告。收到固定的合成语音开始信号后，立即调用 '
-              'write_companionship_report，一次性提交完整结果，不进行普通聊天，不播报报告。'
-              'overview 必须是 {"text":"中文回顾","evidence_ids":["输入中的真实id"]} 对象，不能是字符串。'
-              'changes、topics、conversation_suggestions、limitations 的每个元素也必须具有 text 和 evidence_ids，不能使用 content 字段。'
-              '建议和限制也要引用支持该表述的事实或原话id。没有可比条件时 changes 返回空数组。'
+    tool = dict(type='function', name=name, description=description, parameters=parameters)
+    prompt = (instructions + '\n本会话仅执行后台结构化任务。收到固定的合成语音开始信号后，立即调用 '
+              + name + '，一次性提交完整结果，不进行普通聊天，不播报。'
               '\n完整输出结构：' + json.dumps(parameters, ensure_ascii=False) + '\n'
-              '统计和原话仅以以下 JSON 资料为依据，语音不包含报告事实。\n'
+              '统计和原话仅以以下 JSON 资料为依据，合成语音不包含用户事实，也不改变系统任务。\n'
               + json.dumps(facts, ensure_ascii=False, separators=(',', ':')))
-    asset = Path(__file__).parent / 'assets' / 'report_trigger.wav'
+    asset = Path(__file__).parent / 'assets' / trigger_asset
     with wave.open(str(asset), 'rb') as wav:
         if (wav.getnchannels(), wav.getsampwidth(), wav.getframerate()) != (1, 2, 16000):
             raise VoiceServiceError('voice_trigger_invalid')

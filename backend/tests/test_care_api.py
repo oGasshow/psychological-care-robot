@@ -183,9 +183,9 @@ def test_care_N02_N03_legacy_upgrade_and_wal_recovery(actors,tmp_path,monkeypatc
     a,_=actors
     sid=sample(a,texts=['今天很开心。'])
     source=tmp_path/'old24.db'
-    # Build a genuine old24 schema, excluding every newly introduced care table.
+    # Build the historical old24 schema, excluding later care AND voice tables.
     target_engine=create_engine('sqlite:///'+source.as_posix())
-    old_tables=[t for n,t in Base.metadata.tables.items() if not n.startswith('robot_record_care_')]
+    old_tables=[t for n,t in Base.metadata.tables.items() if not n.startswith(('robot_record_care_','robot_voice_'))]
     Base.metadata.create_all(target_engine,tables=old_tables)
     with database.engine.connect() as original, target_engine.begin() as target:
         for table in old_tables:
@@ -202,6 +202,8 @@ def test_care_N02_N03_legacy_upgrade_and_wal_recovery(actors,tmp_path,monkeypatc
         trace.append({'command':command,'exit_code':p.returncode,'stdout':p.stdout,'stderr':p.stderr})
         assert p.returncode==0,p.stderr
     run('upgrade','--db',source); run('upgrade','--db',source)
+    with closing(sqlite3.connect(source)) as upgraded_db:
+        assert upgraded_db.execute('SELECT count(*) FROM robot_voice_screening_results').fetchone()[0]==0
     assert old_rows(source)==before
     upgraded=create_engine('sqlite:///'+source.as_posix(),connect_args={'check_same_thread':False})
     @event.listens_for(upgraded,'connect')

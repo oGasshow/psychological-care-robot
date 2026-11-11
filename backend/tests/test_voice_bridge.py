@@ -54,9 +54,10 @@ def test_empty_provider_started_id_adopts_real_asr_id_without_extra_turn():
 
 
 @contextmanager
-def cloud():
+def cloud(user_texts=None):
     received=[]
     def handler(ws):
+        input_count=0
         try:
             for raw in ws:
                 event=json.loads(raw);received.append(event);kind=event['type']
@@ -65,12 +66,15 @@ def cloud():
                 elif kind=='speech_text_buffer.commit':
                     ws.send(json.dumps(dict(type='response.output_audio.done',response_id='hello')))
                 elif kind=='input_audio_buffer.append':
+                    input_count+=1
                     assert len(base64.b64decode(event['audio']))==640
-                    events=[dict(type='conversation.item.input_audio_transcription.started',item_id='u1'),
-                            dict(type='conversation.item.input_audio_transcription.completed',item_id='u1',text='虚构：今天开心'),
-                            dict(type='response.output_text.done',question_id='u1',response_id='r1',text='听起来今天有开心的事情。'),
-                            dict(type='response.output_audio.delta',question_id='u1',response_id='r1',delta=base64.b64encode(b'\0'*640).decode()),
-                            dict(type='response.output_audio.done',question_id='u1',response_id='r1')]
+                    q=f'u{input_count}';r=f'r{input_count}'
+                    spoken=user_texts[min(input_count-1,len(user_texts)-1)] if user_texts else '虚构：今天开心'
+                    events=[dict(type='conversation.item.input_audio_transcription.started',item_id=q),
+                            dict(type='conversation.item.input_audio_transcription.completed',item_id=q,text=spoken),
+                            dict(type='response.output_text.done',question_id=q,response_id=r,text='我在听，可以慢慢说。'),
+                            dict(type='response.output_audio.delta',question_id=q,response_id=r,delta=base64.b64encode(b'\0'*640).decode()),
+                            dict(type='response.output_audio.done',question_id=q,response_id=r)]
                     for event in events:ws.send(json.dumps(event))
                 elif kind=='session.close':ws.send(json.dumps(dict(type='session.closed')));break
         except Exception:

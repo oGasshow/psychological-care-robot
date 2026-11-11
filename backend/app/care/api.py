@@ -210,11 +210,11 @@ def get_trends(time_from:Annotated[UTCText|None,Query(alias='from')]=None,time_t
 def preview_report(body:ReportBody,uid=Depends(owner)):
     with transaction(True) as db:
         dto=report(db,uid,body.scope)
-        from ..voice.screening import ScreeningResult
+        from ..voice.screening import ScreeningResult,has_collected_items
         selected=body.scope.session_ids or list({m['recording_session_id'] for m in dto.get('messages',[])})
         dto['conversation_assessments']=[dict(recording_session_id=row.session_id,**row.payload,
             source_status='not_revalidated_after_edits') for row in db.query(ScreeningResult).filter(
-                ScreeningResult.owner==uid,ScreeningResult.session_id.in_(selected)).all()]
+                ScreeningResult.owner==uid,ScreeningResult.session_id.in_(selected)).all() if has_collected_items(row.payload)]
         # These unverified scores are kept out of model facts and formal scale trends.
         return dto
 
