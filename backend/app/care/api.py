@@ -48,6 +48,9 @@ class ReportScope(StrictBody):
 class ReportBody(StrictBody):
     scope:ReportScope
 
+class NarrativeBody(ReportBody):
+    source_snapshot_hash:Annotated[str,Field(strict=True,pattern=r'^[a-f0-9]{64}$')]
+
 class DemoLine(StrictBody):
     role:Literal['user','assistant']
     content:Annotated[str,Field(strict=True,min_length=1,max_length=8000)]
@@ -207,6 +210,21 @@ def get_trends(time_from:Annotated[UTCText|None,Query(alias='from')]=None,time_t
 def preview_report(body:ReportBody,uid=Depends(owner)):
     with transaction(True) as db:
         return report(db,uid,body.scope)
+
+@router.post('/reports/narrative')
+def report_narrative(body:NarrativeBody,uid=Depends(owner)):
+    from .report_narrative import generate
+    with transaction(True) as db:
+        dto=report(db,uid,body.scope)
+    if dto['source_snapshot_hash']!=body.source_snapshot_hash:
+        raise CareError(409,'report_sources_changed')
+    # Do not hold a SQLite transaction while waiting on a model server.
+    value=generate(dto['report_facts'])
+    with transaction(True) as db:
+        latest=report(db,uid,body.scope)
+    if latest['source_snapshot_hash']!=body.source_snapshot_hash:
+        raise CareError(409,'report_sources_changed')
+    return dict(source_snapshot_hash=body.source_snapshot_hash,narrative=value)
 
 def install(app):
     @app.exception_handler(CareError)

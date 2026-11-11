@@ -149,10 +149,15 @@ def report(db,uid,scope):
     suggestions=['可按自己的节奏记录感受，也可以选择与信任的人交流；本摘要不作医疗判断。']
     if result['emotion_counts']['negative']:
         suggestions.append('如果愿意，可以先谈一件最想被理解的事，或尝试舒适、自然的短暂放松。')
-    return dict(schema_version='1.0',**profile(db,uid),generated_at=now(),scope=scope.model_dump(exclude_none=True),
+    dto=dict(schema_version='1.1',**profile(db,uid),generated_at=now(),scope=scope.model_dump(exclude_none=True),
         **result,sessions=session_values,simulation_notice='模拟数据演示' if result['is_test'] else None,
         nature_notice=NATURE,warnings=warnings,suggestions=suggestions,danger_notice=danger_notice,
         assessment_time_source='confirmed_completed_at',dialogue_time_source='source_occurred_at',
         messages=[dict(record_id=row.id,recording_session_id=row.recording_session_id,sequence_no=row.sequence_no,role=row.role,
             text_status=row.text_status,playback_status=row.playback_status,occurred_at=row.occurred_at,received_at=row.received_at,is_test=source_flags[row.id],
             **{k:v for k,v in effective(db,row).items() if k not in ('record_id','recording_session_id')}) for row in rows])
+    from .report_facts import build_facts,rules_narrative
+    dto['report_facts']=build_facts(db,uid,scope,dto)
+    dto['source_snapshot_hash']=dto['report_facts']['source_snapshot_hash']
+    dto['narrative']=rules_narrative(dto['report_facts'],'not_requested')
+    return dto
