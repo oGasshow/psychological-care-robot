@@ -1,0 +1,2 @@
+websockets==15.0.1
+# Microphone/speaker mode also needs PyAudio==0.2.14 (see README_VOICE.md).

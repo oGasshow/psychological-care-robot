@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import {useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 import CareShell,{ErrorBox} from '@/components/care-shell';
 import {DataNatureBadge,reportDataNature,dataNatureText} from '@/components/care-results';
 import {ApiError,Data,date,insights,label,list} from '@/lib/care-api';
@@ -20,8 +20,7 @@ export default function ReportPage({printMode=false}:{printMode?:boolean}) {
   const [scope,setScope]=useState<Data|null>(null),[dto,setDto]=useState<Data|null>(null);
   const [error,setError]=useState<unknown>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
   const requestId=useRef(0);
-  useEffect(()=>{const cancel=()=>{requestId.current++;};const timer=window.setTimeout(()=>{let saved:Data|null=null;try{saved=JSON.parse(sessionStorage.getItem('care-report-scope')||'null');}catch{/* New range. */}const chosen=saved||period();if(chosen.session_ids){setMode('sessions');setIds(chosen.session_ids.join(','));}else{setFrom(localInput(chosen.time_from));setTo(localInput(chosen.time_to));}void request(chosen,false);},0);return()=>{window.clearTimeout(timer);cancel();};},[]);
-  async function request(selected:Data,print:boolean){
+  const request=useCallback(async function readReport(selected:Data,print:boolean,retryChanged=true){
     const id=++requestId.current;setBusy(true);setError(null);setMessage('正在整理最新记录…');
     try{
       const latest=await insights('reports/preview',{method:'POST',body:JSON.stringify({scope:selected})});if(id!==requestId.current)return;
@@ -31,16 +30,23 @@ export default function ReportPage({printMode=false}:{printMode?:boolean}) {
       catch(e){if(e instanceof ApiError&&[401,403,404,409,410].includes(e.status))throw e;complete={...latest,narrative:{...latest.narrative,reason_code:'summary_request_failed'}};}
       if(id!==requestId.current)return;setDto(complete);setMessage(complete.narrative.mode==='model'?'已根据本次记录生成模型文字回顾。':'已根据最新记录生成自动回顾；当前采用规则摘要。');
       if(print){await document.fonts.ready;await new Promise(resolve=>window.requestAnimationFrame(()=>window.requestAnimationFrame(resolve)));if(id===requestId.current)window.print();}
-    }catch(e){if(id!==requestId.current)return;setDto(null);setError(e);setMessage(e instanceof ApiError&&e.status===409?'记录在生成期间发生变化，旧回顾已清除，请重新读取。':'暂时无法读取报告，请重试。');}
+    }catch(e){if(id!==requestId.current)return;setDto(null);
+      if(retryChanged&&e instanceof ApiError&&e.status===409&&e.code==='report_sources_changed'){
+        // Fresh uploads may finish background analysis during model generation.
+        // Discard that output and regenerate once from an entirely new snapshot.
+        await readReport(selected,print,false);return;
+      }
+      setError(e);setMessage(e instanceof ApiError&&e.status===409?'记录在生成期间发生变化，旧回顾已清除，请刷新本次回顾。':'暂时无法读取报告，请重试。');}
     finally{if(id===requestId.current)setBusy(false);}
-  }
+  },[]);
+  useEffect(()=>{const cancel=()=>{requestId.current++;};const timer=window.setTimeout(()=>{let saved:Data|null=null;try{saved=JSON.parse(sessionStorage.getItem('care-report-scope')||'null');}catch{/* New range. */}const chosen=saved||period();if(chosen.session_ids){setMode('sessions');setIds(chosen.session_ids.join(','));}else{setFrom(localInput(chosen.time_from));setTo(localInput(chosen.time_to));}void request(chosen,false);},0);return()=>{window.clearTimeout(timer);cancel();};},[request]);
   function quick(days:number,complete=false){const selected=period(days,complete);setMode('time');setFrom(localInput(selected.time_from));setTo(localInput(selected.time_to));void request(selected,false);}
   function generate(){
     if(mode==='sessions'){const values=ids.split(/[,，\s]+/).filter(Boolean).map(Number);if(!values.length||values.length>50||new Set(values).size!==values.length||values.some(n=>!Number.isSafeInteger(n)||n<1)){setError(new Error('请输入 1—50 个不重复的有效会话编号。'));return;}void request({session_ids:values},false);return;}
     const start=new Date(`${from.length===16?`${from}:00`:from}+08:00`),end=new Date(`${to.length===16?`${to}:00`:to}+08:00`);if(Number.isNaN(start.valueOf())||Number.isNaN(end.valueOf())||start>=end){setError(new Error('请选择有效的开始和结束时间。'));return;}void request({time_from:start.toISOString(),time_to:end.toISOString()},false);
   }
   return <CareShell title="近期陪伴回顾" subtitle="回顾最近的对话，看看哪些感受和日常值得继续聊聊。">
-    <div className="report-toolbar care-no-print"><div className="report-periods" aria-label="报告时间范围"><button className="care-btn secondary" disabled={busy} onClick={()=>quick(7)}>近 7 天 · 含今天</button><button className="care-btn secondary" disabled={busy} onClick={()=>quick(7,true)}>近 7 个完整日</button><button className="care-btn secondary" disabled={busy} onClick={()=>quick(30)}>近 30 天</button></div>{dto&&scope&&<button className="care-btn" disabled={busy} onClick={()=>request(scope,true)}>更新并打印 / 保存 PDF</button>}</div>
+    <div className="report-toolbar care-no-print"><div className="report-periods" aria-label="报告时间范围"><button className="care-btn secondary" disabled={busy} onClick={()=>quick(7)}>近 7 天 · 含今天</button><button className="care-btn secondary" disabled={busy} onClick={()=>quick(7,true)}>近 7 个完整日</button><button className="care-btn secondary" disabled={busy} onClick={()=>quick(30)}>近 30 天</button></div>{scope&&<button className="care-btn secondary" disabled={busy} onClick={()=>request(scope,false)}>刷新本次回顾</button>}{dto&&scope&&<button className="care-btn" disabled={busy} onClick={()=>request(scope,true)}>更新并打印 / 保存 PDF</button>}</div>
     {!printMode&&<details className="report-scope care-no-print"><summary>自定义日期或会话</summary><div className="report-scope-fields"><div><label htmlFor="report-mode">范围类型</label><select id="report-mode" value={mode} onChange={e=>setMode(e.target.value)}><option value="time">日期范围</option><option value="sessions">指定会话</option></select></div>{mode==='sessions'?<div><label htmlFor="report-ids">会话编号，以逗号分隔</label><input id="report-ids" value={ids} onChange={e=>setIds(e.target.value)}/></div>:<><div><label htmlFor="report-from">开始（北京时间，包含）</label><input id="report-from" type="datetime-local" step="1" value={from} onChange={e=>setFrom(e.target.value)}/></div><div><label htmlFor="report-to">结束（北京时间，不包含）</label><input id="report-to" type="datetime-local" step="1" value={to} onChange={e=>setTo(e.target.value)}/></div></>}<button className="care-btn" disabled={busy} onClick={generate}>读取来源并生成预览</button></div></details>}
     <p className="care-meta care-no-print" role="status" data-testid="report-status">{message}</p><ErrorBox error={error}/>{dto&&<ReportBody dto={dto} busy={busy}/>}{printMode&&<Link className="care-btn secondary care-no-print" href="/robot-care/report">返回报告</Link>}
   </CareShell>;

@@ -5,6 +5,7 @@ from .database import engine, Base
 from .routers import auth, chat, assessment, training, diary, growth, analytics
 from . import robot_records
 from .care import api as care_api
+from .voice import api as voice_api
 from .care.settings import engine_configuration
 engine_configuration()
 
@@ -38,6 +39,7 @@ app.include_router(analytics.router)
 app.include_router(robot_records.router)
 robot_records.install_handlers(app)
 care_api.install(app)
+voice_api.install(app)
 
 # 根路径
 @app.get("/")

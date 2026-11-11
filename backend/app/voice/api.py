@@ -1,0 +1,205 @@
+"""Owner-authenticated browser/device bridge; cloud credentials stay server-side."""
+import asyncio
+import base64
+from contextlib import suppress
+import json
+import os
+from urllib.parse import urlsplit
+
+from fastapi import APIRouter, Depends, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from typing import Annotated, Literal
+from ..database import SessionLocal
+from ..robot_records import owner, RecordError
+from . import upstream
+from .settings import settings
+from .recording import Recorder, internal_base, retry
+from .transcripts import Transcripts, Utterance, utc_now
+
+router=APIRouter(prefix='/api/robot-voice',tags=['Doubao voice'])
+ACTIVE=set()
+
+class Authenticate(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True)
+    type:Literal['authenticate']
+    token:Annotated[str,Field(min_length=10,max_length=8192)]
+    device_id:Annotated[str,Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')]='browser_audio'
+
+def test_data():
+    return os.getenv('APP_ENV','production')!='production' or os.getenv('ROBOT_CARE_DEMO_DATABASE')=='true'
+
+@router.get('/config')
+def config(response:Response,uid=Depends(owner)):
+    response.headers['Cache-Control']='no-store'
+    try:
+        cfg=settings()
+        enabled=cfg.enabled and bool(cfg.api_key)
+        limit=cfg.session_seconds
+    except (ValueError,TypeError):
+        enabled,limit=False,900
+    return dict(enabled=enabled,input_rate=16000,output_rate=24000,frame_bytes=640,
+                session_seconds=limit,is_test=test_data(),protocol='voice-bridge-v1',
+                message='可以开始语音对话。' if enabled else '语音服务尚未配置，请联系项目维护人员。')
+
+@router.post('/retry-records')
+def retry_records(request:Request,response:Response,uid=Depends(owner)):
+    response.headers['Cache-Control']='no-store'
+    if uid in ACTIVE:
+        from ..care.service import CareError
+        raise CareError(409,'voice_session_active')
+    token=request.headers['authorization'].split(' ',1)[1]
+    return retry(uid,token,internal_base(request.scope))
+
+def authenticate_token(token):
+    with SessionLocal() as db:
+        return owner(HTTPAuthorizationCredentials(scheme='Bearer',credentials=token),db)
+
+def origin_allowed(ws):
+    origin=ws.headers.get('origin')
+    if not origin:return True  # Native/Pi clients still require the same JWT.
+    parsed=urlsplit(origin)
+    allowed={x.strip() for x in os.getenv('ROBOT_CARE_VOICE_ALLOWED_ORIGINS','').split(',') if x.strip()}
+    host=urlsplit('http://'+ws.headers.get('host','')).hostname
+    return parsed.scheme in ('http','https') and (origin in allowed or parsed.hostname==host or
+        parsed.hostname in ('localhost','127.0.0.1','::1') and host in ('localhost','127.0.0.1','::1'))
+
+@router.websocket('/live')
+async def live(ws:WebSocket):
+    if not origin_allowed(ws):
+        await ws.close(code=4403);return
+    await ws.accept()
+    uid=None;reserved=False;recorder=None;state=Transcripts();client_closed=False
+    async def emit(value):
+        nonlocal client_closed
+        if client_closed:return
+        try:await ws.send_json(value)
+        except (WebSocketDisconnect,RuntimeError):client_closed=True
+    async def persist(entry):
+        if recorder and entry and entry.text.strip() and not entry.recorded:
+            await asyncio.to_thread(recorder.enqueue,entry)
+    try:
+        raw=await asyncio.wait_for(ws.receive_text(),8)
+        if len(raw)>10000:raise ValueError('invalid_authentication_frame')
+        auth=Authenticate.model_validate_json(raw)
+        uid=await asyncio.to_thread(authenticate_token,auth.token)
+        if uid in ACTIVE:
+            await emit(dict(type='error',code='voice_session_active',message='已有语音会话正在进行，请先结束另一处会话。'));return
+        ACTIVE.add(uid);reserved=True
+        cfg=settings()
+        if not cfg.enabled or not cfg.api_key:
+            await emit(dict(type='error',code='voice_not_configured',message='语音服务尚未配置。'));return
+        base=internal_base(ws.scope)
+        await emit(dict(type='status',state='connecting',message='正在连接豆包语音…'))
+        # Retry previously sealed local queues with this owner's current JWT.
+        await asyncio.to_thread(retry,uid,auth.token,base)
+        async with upstream.connection(cfg) as (remote,created):
+            await remote.send(json.dumps({'type':'input_audio_mute.commit'}))
+            recorder=await asyncio.to_thread(Recorder,uid,auth.token,base,is_test=test_data(),device_id=auth.device_id)
+            await emit(dict(type='session.ready',session_id=recorder.external,input_rate=16000,output_rate=24000,
+                            is_test=test_data(),protocol='voice-bridge-v1'))
+            greeting=Utterance('greeting','assistant','turn_0',text=upstream.GREETING,final=True,occurred_at=utc_now())
+            state.responses['greeting']=greeting;state.active_response='greeting'
+            await persist(greeting);await emit(greeting.public(True))
+            await remote.send(json.dumps({'type':'speech_text_buffer.commit','text':upstream.GREETING},ensure_ascii=False))
+            finishing=asyncio.Event()
+            async def interrupt(reason):
+                entries=state.interrupt()
+                await emit(dict(type='playback.clear',reason=reason))
+                for entry in entries:
+                    if not entry.recorded and entry.text.strip():
+                        await persist(entry);await emit(entry.public(True))
+                if entries:
+                    await remote.send(json.dumps({'type':'response.cancel'}))
+            async def receive_remote():
+                async for raw_event in remote:
+                    event=upstream.decode_event(raw_event);kind=event['type']
+                    if kind=='conversation.item.input_audio_transcription.started':
+                        await interrupt('user_started_speaking')
+                    entry,public=state.apply(event)
+                    if public:
+                        if public['type']=='transcript.final':await persist(entry)
+                        await emit(public)
+                    if kind=='response.output_audio.delta' and entry and not entry.interrupted:
+                        encoded=event.get('delta','')
+                        pcm=base64.b64decode(encoded,validate=True)
+                        if len(pcm)%2 or len(pcm)>256000:raise ValueError('invalid_provider_audio')
+                        await emit(dict(type='audio.delta',message_id=entry.message_id,audio=encoded,rate=24000))
+                    elif kind=='response.output_audio.done' and entry and not entry.interrupted:
+                        await emit(dict(type='audio.done',message_id=entry.message_id))
+                    elif kind=='response.canceled':
+                        await emit(dict(type='status',state='interrupted',message='已打断旧回复，可以继续说。'))
+                    elif kind=='session.closed':break
+            async def receive_client():
+                nonlocal client_closed
+                while True:
+                    packet=await ws.receive()
+                    if packet['type']=='websocket.disconnect':
+                        client_closed=True
+                        finishing.set();return
+                    if packet.get('bytes') is not None:
+                        pcm=packet['bytes']
+                        if len(pcm)!=640:raise ValueError('invalid_audio_frame')
+                        await remote.send(json.dumps({'type':'input_audio_buffer.append','audio':base64.b64encode(pcm).decode('ascii')}))
+                        continue
+                    text=packet.get('text','')
+                    if len(text)>2000:raise ValueError('invalid_control_frame')
+                    command=json.loads(text)
+                    if not isinstance(command,dict):raise ValueError('invalid_control_frame')
+                    kind=command.get('type')
+                    if kind=='finish':finishing.set();return
+                    if kind=='interrupt':await interrupt('manual')
+                    elif kind in ('mute','unmute'):
+                        await remote.send(json.dumps({'type':'input_audio_mute.commit' if kind=='mute' else 'input_audio_unmute.commit'}))
+                    elif kind=='commit':await remote.send(json.dumps({'type':'input_audio_buffer.commit'}))
+                    elif kind=='playback':
+                        # Client scheduling is visible live. Saved immutable text
+                        # remains unknown unless interruption was already known.
+                        if command.get('state') in ('playing','completed','interrupted'):
+                            await emit(dict(type='playback.status',state=command['state'],message_id=str(command.get('message_id',''))[:100]))
+                    elif kind not in ('interrupt','mute','unmute','commit'):
+                        raise ValueError('unsupported_voice_command')
+            receiver=asyncio.create_task(receive_remote())
+            client=asyncio.create_task(receive_client())
+            deadline=asyncio.create_task(asyncio.sleep(cfg.session_seconds))
+            try:
+                done,_=await asyncio.wait([receiver,client,deadline],return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    if task is not deadline and not task.cancelled() and task.exception():raise task.exception()
+                if deadline in done:await emit(dict(type='status',state='time_limit',message='本次语音已到时限，正在保存记录。'))
+                if not receiver.done():
+                    if state.active_user and not state.users[state.active_user].final:
+                        await remote.send(json.dumps({'type':'input_audio_buffer.commit'}))
+                    await remote.send(json.dumps({'type':'input_audio_mute.commit'}))
+                    # A small drain retains final ASR/text already in flight.
+                    await asyncio.sleep(.6)
+                    await remote.send(json.dumps({'type':'session.close'}))
+                    with suppress(TimeoutError):await asyncio.wait_for(asyncio.shield(receiver),2)
+            finally:
+                for task in (receiver,client,deadline):task.cancel()
+                await asyncio.gather(receiver,client,deadline,return_exceptions=True)
+    except RecordError:
+        await emit(dict(type='error',code='authentication_required',message='登录已失效，请重新登录。'))
+    except (ValidationError,ValueError,TypeError,KeyError):
+        await emit(dict(type='error',code='voice_protocol_invalid',message='语音数据格式不正确，请重新开始。'))
+    except upstream.VoiceServiceError as exc:
+        await emit(dict(type='error',code=exc.code,provider_code=exc.provider_code,message='语音服务暂时无法继续，已保存的文字将保留，可稍后重试。'))
+    except (TimeoutError,WebSocketDisconnect):pass
+    except Exception:
+        # No raw exception or provider payload can expose credentials/text.
+        await emit(dict(type='error',code='voice_session_failed',message='本次语音连接已结束，正在尝试保存已有文字。'))
+    finally:
+        if recorder:
+            try:
+                for entry in state.unfinished():
+                    if entry.role=='assistant':entry.interrupted=not entry.done
+                    await persist(entry)
+                result=await asyncio.to_thread(recorder.finish)
+                await emit(result)
+            except Exception:
+                await emit(dict(type='records.error',pending=None,message='部分文字未能确认保存，请保留本页内容并联系项目维护人员。'))
+        if reserved:ACTIVE.discard(uid)
+        with suppress(RuntimeError,WebSocketDisconnect):await ws.close()
+
+def install(app):
+    app.include_router(router)

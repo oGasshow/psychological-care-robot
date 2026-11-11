@@ -1,6 +1,7 @@
 """Optional model wording. Statistics and safety never depend on model output."""
 from pathlib import Path
 import json
+import asyncio
 import os
 import re
 import time
@@ -35,6 +36,13 @@ def configuration():
     provider = os.getenv('ROBOT_CARE_REPORT_PROVIDER', 'ollama' if base and model else 'disabled')
     if provider == 'disabled':
         return None
+    if provider == 'doubao_realtime':
+        from ..voice.settings import settings as voice_settings
+        voice_config = voice_settings()
+        timeout = float(os.getenv('ROBOT_CARE_REPORT_TIMEOUT_SECONDS', '45'))
+        if not voice_config.api_key or not 1 <= timeout <= 60:
+            raise ValueError('model_configuration_invalid')
+        return dict(provider=provider, model=voice_config.model, timeout=timeout)
     parsed = urlsplit(base)
     if (provider not in ('ollama', 'chat_completions', 'qwen', 'doubao') or parsed.scheme not in ('http', 'https') or not parsed.hostname
             or parsed.username or parsed.password or parsed.query or parsed.fragment or not model.strip() or len(model) > 160):
@@ -97,6 +105,20 @@ def generate(facts):
     evidence_input = {k: facts[k] for k in ('report_facts_version', 'scope', 'comparison_scope', 'data_nature', 'facts', 'evidence', 'evidence_selection')}
     messages = [{'role': 'system', 'content': prompt + '\n输出 JSON Schema：' + json.dumps(schema, ensure_ascii=False)},
                 {'role': 'user', 'content': json.dumps(evidence_input, ensure_ascii=False, separators=(',', ':'))}]
+    if config['provider'] == 'doubao_realtime':
+        from ..voice.upstream import structured_report, VoiceServiceError
+        try:
+            raw = asyncio.run(structured_report(prompt, schema, evidence_input, config['timeout']))
+            data = validate_content(raw, facts)
+        except TimeoutError:
+            return fallback('model_timeout')
+        except VoiceServiceError as exc:
+            return fallback(exc.code)
+        except (ValueError, TypeError, KeyError, OSError, ValidationError):
+            return fallback('model_output_rejected')
+        return dict(mode='model', status='ready', reason_code=None, prompt_version=PROMPT_VERSION,
+                    model=config['model'], provider=config['provider'], content=data,
+                    source_snapshot_hash=facts['source_snapshot_hash'], elapsed_ms=round((time.monotonic()-started)*1000))
     payload = dict(model=config['model'], messages=messages, stream=False)
     headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
     if config['key']:

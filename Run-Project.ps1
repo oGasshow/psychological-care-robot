@@ -53,7 +53,7 @@ try {
     # Invalidate the existing build when application sources change. The demo
     # runner performs the actual build with its selected backend address.
     if (-not $ApiOnly) {
-        $trackedSources = @('frontend/src','frontend/package.json','frontend/package-lock.json','frontend/next.config.ts','frontend/tsconfig.json')
+        $trackedSources = @('frontend/src','frontend/public','frontend/package.json','frontend/package-lock.json','frontend/next.config.ts','frontend/tsconfig.json')
         $sourceFiles = foreach ($relativePath in $trackedSources) {
             $candidate = Join-Path $projectRoot $relativePath
             if (Test-Path -LiteralPath $candidate -PathType Container) {

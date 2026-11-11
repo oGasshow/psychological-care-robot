@@ -16,6 +16,9 @@ os.environ['DATABASE_URL'] = 'sqlite:///' + (RUN_ROOT / 'server.db').as_posix()
 os.environ['SECRET_KEY'] = 'fictional-test-only-secret-key-32-characters'
 os.environ['SQLITE_BUSY_MS'] = '80'
 os.environ['MODELSCOPE_API_KEY'] = ''
+os.environ['DOUBAO_VOICE_API_KEY'] = ''
+os.environ['ROBOT_CARE_VOICE_ENABLED'] = 'false'
+os.environ['ROBOT_CARE_REPORT_PROVIDER'] = 'disabled'
 os.environ['PYTHONUTF8'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

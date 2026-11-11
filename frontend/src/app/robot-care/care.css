@@ -61,6 +61,16 @@
 .care-report section { margin:25px 0; }
 .care-report h2 { font-size:19px; font-weight:700; border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:14px; }
 .care-print-stamp { display:none; }
+.voice-layout { display:grid; grid-template-columns:minmax(270px,.8fr) minmax(0,1.5fr); gap:22px; align-items:start; }
+.voice-console { text-align:center; }.voice-orb { width:88px; height:88px; display:grid; place-items:center; border-radius:50%; background:#e2eee7; color:var(--green); font-size:30px; margin:8px auto 22px; }
+.voice-orb.active { box-shadow:0 0 0 12px #e2eee750; }.voice-notice { min-height:54px; color:var(--muted); }
+.voice-meter { height:7px; background:#e5ece7; border-radius:8px; overflow:hidden; margin:20px 0 5px; }.voice-meter span { display:block; height:100%; background:#548c77; transition:width .1s; }
+.voice-controls { display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin:20px 0; }.voice-controls button { min-height:44px; }
+.voice-transcript-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }.voice-empty { text-align:center; color:var(--muted); padding:70px 5px; }
+.voice-line { margin:18px 0; max-width:92%; border-radius:10px; padding:14px 18px; background:#f0f5f1; }.voice-line.user { margin-left:auto; background:#dfede3; }
+.voice-line header { display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }.voice-line header span,.voice-line time { color:var(--muted); font-size:12px; }.voice-line p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.voice-record-status h2 { font-size:18px; }
+@media(max-width:800px){.voice-layout { grid-template-columns:1fr; gap:0; }.voice-console { padding:22px 16px; }.voice-orb { width:65px; height:65px; margin-bottom:16px; }.voice-notice { min-height:0; }.voice-line { max-width:100%; }.voice-empty { padding:35px 0; }}
 .report-toolbar,.report-periods { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
 .report-toolbar { justify-content:space-between; margin:20px 0; }
 .report-scope { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 18px; }
