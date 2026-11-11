@@ -61,6 +61,7 @@ def cloud():
             for raw in ws:
                 event=json.loads(raw);received.append(event);kind=event['type']
                 if kind=='session.create':ws.send(json.dumps(dict(type='session.created')))
+                elif kind=='session.update':ws.send(json.dumps(dict(type='session.updated')))
                 elif kind=='speech_text_buffer.commit':
                     ws.send(json.dumps(dict(type='response.output_audio.done',response_id='hello')))
                 elif kind=='input_audio_buffer.append':

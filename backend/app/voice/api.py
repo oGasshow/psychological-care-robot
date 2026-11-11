@@ -16,15 +16,45 @@ from . import upstream
 from .settings import settings
 from .recording import Recorder, internal_base, retry
 from .transcripts import Transcripts, Utterance, utc_now
+from .screening import Screening, ScreeningResult, save_result
 
 router=APIRouter(prefix='/api/robot-voice',tags=['Doubao voice'])
 ACTIVE=set()
+RUNTIMES={}
 
 class Authenticate(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
     type:Literal['authenticate']
     token:Annotated[str,Field(min_length=10,max_length=8192)]
     device_id:Annotated[str,Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')]='browser_audio'
+    guided_screening:bool=False
+
+class ConcernSignal(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True)
+    session_id:Annotated[str,Field(min_length=1,max_length=100)]
+    evidence_ids:Annotated[list[str],Field(min_length=1,max_length=20)]
+    detector_version:Annotated[str,Field(min_length=1,max_length=100)]
+
+@router.post('/screening-signal')
+async def screening_signal(body:ConcernSignal,uid=Depends(owner)):
+    from fastapi import HTTPException
+    runtime=RUNTIMES.get(uid)
+    if not runtime or runtime['session_id']!=body.session_id:raise HTTPException(404,'active_session_not_found')
+    known={u.message_id for u in runtime['transcripts'].users.values() if u.final}
+    if not set(body.evidence_ids)<=known:raise HTTPException(422,'unknown_user_evidence')
+    if not runtime['controller'].enabled:raise HTTPException(409,'guided_collection_not_enabled')
+    if runtime['queue'].full():raise HTTPException(429,'screening_signal_queue_full')
+    await runtime['queue'].put(body)
+    return dict(status='queued',applied=False)
+
+@router.get('/screening-results/{sid}')
+def screening_result(sid:int,response:Response,uid=Depends(owner)):
+    from ..robot_records import owned
+    response.headers['Cache-Control']='no-store'
+    with SessionLocal() as db:
+        owned(db,sid,uid)
+        value=db.get(ScreeningResult,sid)
+        return dict(result=value.payload if value and value.owner==uid else None)
 
 def test_data():
     return os.getenv('APP_ENV','production')!='production' or os.getenv('ROBOT_CARE_DEMO_DATABASE')=='true'
@@ -69,7 +99,7 @@ async def live(ws:WebSocket):
     if not origin_allowed(ws):
         await ws.close(code=4403);return
     await ws.accept()
-    uid=None;reserved=False;recorder=None;state=Transcripts();client_closed=False
+    uid=None;reserved=False;recorder=None;state=Transcripts();client_closed=False;controller=Screening()
     async def emit(value):
         nonlocal client_closed
         if client_closed:return
@@ -82,6 +112,7 @@ async def live(ws:WebSocket):
         raw=await asyncio.wait_for(ws.receive_text(),8)
         if len(raw)>10000:raise ValueError('invalid_authentication_frame')
         auth=Authenticate.model_validate_json(raw)
+        controller=Screening(auth.guided_screening)
         uid=await asyncio.to_thread(authenticate_token,auth.token)
         if uid in ACTIVE:
             await emit(dict(type='error',code='voice_session_active',message='已有语音会话正在进行，请先结束另一处会话。'));return
@@ -96,6 +127,20 @@ async def live(ws:WebSocket):
         async with upstream.connection(cfg) as (remote,created):
             await remote.send(json.dumps({'type':'input_audio_mute.commit'}))
             recorder=await asyncio.to_thread(Recorder,uid,auth.token,base,is_test=test_data(),device_id=auth.device_id)
+            queue=asyncio.Queue(maxsize=16);pending_versions=[]
+            RUNTIMES[uid]=dict(session_id=recorder.external,queue=queue,controller=controller,transcripts=state)
+            async def update_policy():
+                payload=upstream.session_payload(cfg,instructions=controller.instructions())
+                payload['type']='session.update'
+                pending_versions.append(controller.version)
+                await remote.send(json.dumps(payload,ensure_ascii=False))
+                await emit(controller.view())
+            async def receive_control():
+                while True:
+                    signal=await queue.get()
+                    controller.concern(signal.evidence_ids,signal.detector_version)
+                    await update_policy()
+            if controller.enabled:await update_policy()
             await emit(dict(type='session.ready',session_id=recorder.external,input_rate=16000,output_rate=24000,
                             is_test=test_data(),protocol='voice-bridge-v1'))
             greeting=Utterance('greeting','assistant','turn_0',text=upstream.GREETING,final=True,occurred_at=utc_now())
@@ -114,11 +159,16 @@ async def live(ws:WebSocket):
             async def receive_remote():
                 async for raw_event in remote:
                     event=upstream.decode_event(raw_event);kind=event['type']
+                    if kind=='session.updated' and pending_versions:
+                        await emit(dict(type='screening.policy_applied',version=pending_versions.pop(0)))
                     if kind=='conversation.item.input_audio_transcription.started':
                         await interrupt('user_started_speaking')
                     entry,public=state.apply(event)
                     if public:
-                        if public['type']=='transcript.final':await persist(entry)
+                        if public['type']=='transcript.final':
+                            await persist(entry)
+                            version=controller.version;controller.observe(entry)
+                            if version!=controller.version:await update_policy()
                         await emit(public)
                     if kind=='response.output_audio.delta' and entry and not entry.interrupted:
                         encoded=event.get('delta','')
@@ -148,6 +198,16 @@ async def live(ws:WebSocket):
                     if not isinstance(command,dict):raise ValueError('invalid_control_frame')
                     kind=command.get('type')
                     if kind=='finish':finishing.set();return
+                    if kind=='screening.action':
+                        action=command.get('action')
+                        if action not in ('ready','consent','decline','pause'):raise ValueError('invalid_screening_action')
+                        line=Utterance('screening_action_'+__import__('uuid').uuid4().hex,'user','screening_control',
+                            text={'ready':'我现在准备好继续交流了。','consent':'我愿意以对话方式回顾最近两周的PHQ-9和GAD-7相关信息，可以随时停止。',
+                                  'decline':'我不想继续信息采集。','pause':'我想先暂停信息采集。'}[action],final=True,occurred_at=utc_now())
+                        await persist(line);await emit(line.public(True))
+                        controller.action(action)
+                        if action=='consent' and controller.stage=='collecting':controller.consent_ids.append(line.message_id)
+                        await update_policy();continue
                     if kind=='interrupt':await interrupt('manual')
                     elif kind in ('mute','unmute'):
                         await remote.send(json.dumps({'type':'input_audio_mute.commit' if kind=='mute' else 'input_audio_unmute.commit'}))
@@ -162,8 +222,9 @@ async def live(ws:WebSocket):
             receiver=asyncio.create_task(receive_remote())
             client=asyncio.create_task(receive_client())
             deadline=asyncio.create_task(asyncio.sleep(cfg.session_seconds))
+            control=asyncio.create_task(receive_control())
             try:
-                done,_=await asyncio.wait([receiver,client,deadline],return_when=asyncio.FIRST_COMPLETED)
+                done,_=await asyncio.wait([receiver,client,deadline,control],return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     if task is not deadline and not task.cancelled() and task.exception():raise task.exception()
                 if deadline in done:await emit(dict(type='status',state='time_limit',message='本次语音已到时限，正在保存记录。'))
@@ -176,8 +237,8 @@ async def live(ws:WebSocket):
                     await remote.send(json.dumps({'type':'session.close'}))
                     with suppress(TimeoutError):await asyncio.wait_for(asyncio.shield(receiver),2)
             finally:
-                for task in (receiver,client,deadline):task.cancel()
-                await asyncio.gather(receiver,client,deadline,return_exceptions=True)
+                for task in (receiver,client,deadline,control):task.cancel()
+                await asyncio.gather(receiver,client,deadline,control,return_exceptions=True)
     except RecordError:
         await emit(dict(type='error',code='authentication_required',message='登录已失效，请重新登录。'))
     except (ValidationError,ValueError,TypeError,KeyError):
@@ -195,10 +256,13 @@ async def live(ws:WebSocket):
                     if entry.role=='assistant':entry.interrupted=not entry.done
                     await persist(entry)
                 result=await asyncio.to_thread(recorder.finish)
+                if controller.enabled and result['type']=='records.saved':
+                    try:await asyncio.to_thread(save_result,uid,result['recording_session_id'],controller)
+                    except Exception:await emit(dict(type='screening.result_failed',message='对话文字已保存，辅助采集结果未能确认保存，后续需从原话重新核实。'))
                 await emit(result)
             except Exception:
                 await emit(dict(type='records.error',pending=None,message='部分文字未能确认保存，请保留本页内容并联系项目维护人员。'))
-        if reserved:ACTIVE.discard(uid)
+        if reserved:ACTIVE.discard(uid);RUNTIMES.pop(uid,None)
         with suppress(RuntimeError,WebSocketDisconnect):await ws.close()
 
 def install(app):

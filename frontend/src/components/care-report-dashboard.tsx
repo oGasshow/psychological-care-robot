@@ -60,6 +60,7 @@ function Evidence({ids,facts}:{ids:unknown;facts:Data}){
 function ReportBody({dto,busy}:{dto:Data;busy:boolean}){
   const facts=dto.report_facts||{},nature=reportDataNature(facts),n=dto.narrative||{},c=n.content||{},evidence=list(facts.evidence);
   return <article className="care-report report-template" data-testid="report-dto" data-is-test={nature==='test_only'?'true':'false'} data-data-nature={nature} data-generated-at={dto.generated_at}>
+    {list(dto.conversation_assessments).length>0&&<section className="care-card"><h2>对话辅助采集 · 待核实</h2><p>以下仅为已确认条目的整理，改写问法未经正式测量效度验证；未完成不出总分，原话更正后需重新核实，不用于诊断。</p>{list(dto.conversation_assessments).map(a=><div key={a.recording_session_id}><p>会话 #{a.recording_session_id}</p>{list(a.scales).map(s=><p key={s.scale}>{s.scale}：已确认 {s.answered}/{s.required} 项 · {s.total===null?'信息未齐，总分未生成':`辅助合计 ${s.total}（待核实）`}</p>)}</div>)}</section>}
     <div className="care-print-stamp" data-testid="report-print-nature">{dataNatureText(nature)} · 辅助陪伴回顾 · 非诊断用途</div>
     <header className="report-heading"><div><div className="care-eyebrow">陪伴记录 / 一段时间的回顾</div><h1>近期陪伴回顾</h1><p className="report-range">{rangeText(dto.scope)}</p></div><div className="report-identity"><span className="care-badge" data-testid="report-nature-notice">{dataNatureText(nature)}</span><p>{dto.anonymous_id}</p><p className="care-meta">数据截至 {date(dto.data_as_of)}</p></div></header>
     <DangerNotice data={dto.danger_notice}/>
