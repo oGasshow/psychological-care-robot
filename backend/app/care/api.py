@@ -196,7 +196,10 @@ def get_delivery(delivery_id:ResourceID,uid=Depends(owner)):
 def get_assessments(uid=Depends(owner)):
     with transaction() as db:
         from .collection_history import collection_history
-        return dict(**assessments(db,uid),conversation_collections=collection_history(db,uid),conversation_limit=100)
+        from ..voice.collection_plan import public_plan
+        from ..voice.api import test_data
+        return dict(**assessments(db,uid),conversation_collections=collection_history(db,uid),conversation_limit=100,
+            collection_plan=public_plan(uid,test_data()))
 
 @router.get('/trends')
 def get_trends(time_from:Annotated[UTCText|None,Query(alias='from')]=None,time_to:Annotated[UTCText|None,Query(alias='to')]=None,uid=Depends(owner)):

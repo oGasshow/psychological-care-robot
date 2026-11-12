@@ -11,6 +11,8 @@ engine_configuration()
 
 # 创建数据库表
 Base.metadata.create_all(bind=engine)
+from .voice.collection_plan import backfill_recent_plans
+backfill_recent_plans()
 
 # 创建 FastAPI 应用
 app = FastAPI(

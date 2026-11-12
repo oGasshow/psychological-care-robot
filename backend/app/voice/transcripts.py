@@ -54,13 +54,14 @@ class Transcripts:
         if key not in self.users:
             self.turn += 1
             self.users[key] = Utterance(key,'user',f'turn_{self.turn}',occurred_at=utc_now())
+            self.active_response=None
         self.active_user = key
         return self.users[key]
 
     def response(self, event):
         question, response = event.get('question_id'), event.get('response_id')
         question_key='question_'+question if question else None
-        key = (self.aliases.get(question_key) if question_key else None) or (question_key or self.aliases.get(response) or response or self.active_response or 'greeting')
+        key = (self.aliases.get(question_key) if question_key else None) or (question_key or self.aliases.get(response) or response or self.active_response or f'reply_turn_{self.turn}')
         if self.turn==0 and self.active_response=='greeting':key='greeting'
         if question_key:self.aliases[question_key]=key
         if response:
@@ -98,7 +99,10 @@ class Transcripts:
                 return entry, dict(type='status',state='transcription_failed',message='这句话未能识别清楚，可以再说一次。')
         if kind.startswith('response.output_'):
             if self.waiting_cancel and not event.get('question_id') and not event.get('response_id'):
-                return None, None
+                current=self.users.get(self.active_user)
+                if current and current.final and kind.startswith('response.output_text.') and self.active_response is None:
+                    self.waiting_cancel=False
+                else:return None, None
             entry = self.response(event)
             if entry.interrupted:
                 return entry, None
@@ -114,6 +118,10 @@ class Transcripts:
         if kind=='response.canceled':
             # An ACK for the old response must not reset/discard a newer response.
             self.waiting_cancel = False
+        if kind=='response.done':
+            identifier=event.get('response_id') or event.get('response',{}).get('id')
+            key=self.aliases.get(identifier) if identifier else self.active_response
+            if key in self.responses:self.responses[key].done=True
         return None, None
 
     def unfinished(self):

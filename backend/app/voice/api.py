@@ -4,6 +4,7 @@ import base64
 from contextlib import suppress
 import json
 import os
+import time
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Request, Response, WebSocket, WebSocketDisconnect
@@ -19,6 +20,9 @@ from .transcripts import Transcripts, Utterance, utc_now
 from .screening import Screening, ScreeningResult, save_result, has_collected_items
 from .screening_policy import CollectionPolicy, collection_policy
 from .screening_monitor import ScreeningMonitor
+from .collection_plan import read_plan,restore,store_plan,public_plan
+from .continuity import recent_context
+from . import sega
 
 router=APIRouter(prefix='/api/robot-voice',tags=['Doubao voice'])
 ACTIVE=set()
@@ -41,6 +45,7 @@ async def diagnostics(response:Response,uid=Depends(owner)):
     if not controller.enabled:message='本次会话未启用后台信息采集。'
     elif controller.stage=='collecting':message='豆包已确认采集指令，可继续自然交流。' if applied==controller.version else '采集任务已下发，正在等待豆包确认。'
     elif controller.stage=='waiting_context':message='已有进一步了解的线索，正在等待适合自然过渡的对话时机。'
+    elif controller.stage=='checking_in':message='已带入历史关注任务，先了解当前感受，不因换通话清除任务。'
     elif controller.stage in ('paused','declined','urgent','complete'):message='本次采集已暂停或结束，不会强行继续。'
     elif monitor and monitor.in_flight:message='正在后台核查对话，语音交流可以继续。'
     elif controller.detector_status=='unavailable':message='后台检测暂未完成，请稍后再试；没有据此启动采集。'
@@ -52,7 +57,35 @@ async def diagnostics(response:Response,uid=Depends(owner)):
                 detector_running=bool(monitor and monitor.in_flight),detector_status=controller.detector_status,
                 last_decision=decision,target_scales=controller.target_scales,
                 sent_policy_version=runtime.get('sent_policy_version'),applied_policy_version=applied,
+                transport=controller.transport_diagnostics,
                 last_error_code=monitor.last_error_code if monitor else None,message=message)
+
+@router.get('/collection-plan')
+def collection_plan(response:Response,uid=Depends(owner)):
+    response.headers['Cache-Control']='no-store'
+    return public_plan(uid,test_data())
+
+@router.get('/sega/status')
+def sega_status(response:Response,uid=Depends(owner)):
+    response.headers['Cache-Control']='no-store'
+    return dict(**sega.status(),probe_allowed=test_data())
+
+@router.post('/sega/probe')
+async def sega_probe(response:Response,uid=Depends(owner)):
+    from fastapi import HTTPException
+    if not test_data():raise HTTPException(404,'not_found')
+    response.headers['Cache-Control']='no-store'
+    return await asyncio.to_thread(sega.execute,fixture=True)
+
+@router.get('/sega/sessions/{sid}')
+def sega_session(sid:int,response:Response,uid=Depends(owner)):
+    response.headers['Cache-Control']='no-store'
+    return sega.session_status(uid,sid)
+
+@router.post('/sega/sessions/{sid}')
+async def sega_analyze(sid:int,request:Request,response:Response,uid=Depends(owner)):
+    response.headers['Cache-Control']='no-store'
+    return await sega.analyze_features(uid,sid,request)
 
 class Authenticate(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
@@ -166,13 +199,24 @@ async def live(ws:WebSocket):
         await emit(dict(type='status',state='connecting',message='正在连接豆包语音…'))
         # Retry previously sealed local queues with this owner's current JWT.
         await asyncio.to_thread(retry,uid,auth.token,base)
+        if controller.enabled:
+            plan=await asyncio.to_thread(read_plan,uid,test_data())
+            context=await asyncio.to_thread(recent_context,uid,is_test=test_data(),
+                after=plan.get('completed_at') if plan and not plan['needs_collection'] else None)
+            controller.inherit(context)
+            restore(controller,plan)
+        else:context={'turns':[],'references':{}}
         async with upstream.connection(cfg,instructions=controller.instructions()) as (remote,created):
             await remote.send(json.dumps({'type':'input_audio_mute.commit'}))
             recorder=await asyncio.to_thread(Recorder,uid,auth.token,base,is_test=test_data(),device_id=auth.device_id)
             queue=asyncio.Queue(maxsize=16);pending_versions=[]
+            transport=dict(audio_frames=0,remote_events=0,last_remote_event=None,last_client_command=None)
+            controller.transport_diagnostics=transport
+            last_frame=time.monotonic();mic_enabled=False
             RUNTIMES[uid]=dict(session_id=recorder.external,queue=queue,controller=controller,transcripts=state,
                                sent_policy_version=None,applied_policy_version=None)
             async def update_policy():
+                await asyncio.to_thread(store_plan,uid,test_data(),controller)
                 payload=upstream.session_payload(cfg,instructions=controller.instructions())
                 payload['type']='session.update'
                 pending_versions.append(controller.version)
@@ -184,7 +228,7 @@ async def live(ws:WebSocket):
                     signal=await queue.get()
                     controller.concern(signal.evidence_ids,signal.detector_version,signal.target_scales)
                     await update_policy()
-            monitor=ScreeningMonitor(controller,update_policy,provider=policy.detector,emit=emit)
+            monitor=ScreeningMonitor(controller,update_policy,provider=policy.detector,emit=emit,history=context['turns'])
             RUNTIMES[uid]['monitor']=monitor
             if controller.enabled:await update_policy()
             await emit(dict(type='session.ready',session_id=recorder.external,input_rate=16000,output_rate=24000,
@@ -205,6 +249,7 @@ async def live(ws:WebSocket):
             async def receive_remote():
                 async for raw_event in remote:
                     event=upstream.decode_event(raw_event);kind=event['type']
+                    transport['remote_events']+=1;transport['last_remote_event']=kind
                     if kind=='session.updated' and pending_versions:
                         applied=pending_versions.pop(0)
                         RUNTIMES[uid]['applied_policy_version']=applied
@@ -230,7 +275,7 @@ async def live(ws:WebSocket):
                         await emit(dict(type='status',state='interrupted',message='已打断旧回复，可以继续说。'))
                     elif kind=='session.closed':break
             async def receive_client():
-                nonlocal client_closed
+                nonlocal client_closed,last_frame,mic_enabled
                 while True:
                     packet=await ws.receive()
                     if packet['type']=='websocket.disconnect':
@@ -239,6 +284,9 @@ async def live(ws:WebSocket):
                     if packet.get('bytes') is not None:
                         pcm=packet['bytes']
                         if len(pcm)!=640:raise ValueError('invalid_audio_frame')
+                        if not mic_enabled:
+                            await remote.send(json.dumps({'type':'input_audio_unmute.commit'}));mic_enabled=True
+                        last_frame=time.monotonic();transport['audio_frames']+=1
                         await remote.send(json.dumps({'type':'input_audio_buffer.append','audio':base64.b64encode(pcm).decode('ascii')}))
                         continue
                     text=packet.get('text','')
@@ -246,6 +294,7 @@ async def live(ws:WebSocket):
                     command=json.loads(text)
                     if not isinstance(command,dict):raise ValueError('invalid_control_frame')
                     kind=command.get('type')
+                    transport['last_client_command']=kind
                     if kind=='finish':finishing.set();return
                     if kind=='screening.action':
                         action=command.get('action')
@@ -257,6 +306,7 @@ async def live(ws:WebSocket):
                         await update_policy();continue
                     if kind=='interrupt':await interrupt('manual')
                     elif kind in ('mute','unmute'):
+                        mic_enabled=kind=='unmute';last_frame=time.monotonic()
                         await remote.send(json.dumps({'type':'input_audio_mute.commit' if kind=='mute' else 'input_audio_unmute.commit'}))
                     elif kind=='commit':await remote.send(json.dumps({'type':'input_audio_buffer.commit'}))
                     elif kind=='playback':
@@ -266,13 +316,22 @@ async def live(ws:WebSocket):
                             await emit(dict(type='playback.status',state=command['state'],message_id=str(command.get('message_id',''))[:100]))
                     elif kind not in ('interrupt','mute','unmute','commit'):
                         raise ValueError('unsupported_voice_command')
+            async def capture_guard():
+                nonlocal mic_enabled
+                while True:
+                    await asyncio.sleep(2)
+                    if mic_enabled and time.monotonic()-last_frame>6:
+                        await remote.send(json.dumps({'type':'input_audio_mute.commit'}));mic_enabled=False
+                        transport['capture_gap_count']=transport.get('capture_gap_count',0)+1
+                        await emit(dict(type='status',state='capture_paused',message='收音数据暂时中断，已暂停上行；恢复收音后继续，或重新连接。'))
             receiver=asyncio.create_task(receive_remote())
             client=asyncio.create_task(receive_client())
             deadline=asyncio.create_task(asyncio.sleep(cfg.session_seconds))
             control=asyncio.create_task(receive_control())
             detector=asyncio.create_task(monitor.run())
+            guard=asyncio.create_task(capture_guard())
             try:
-                done,_=await asyncio.wait([receiver,client,deadline,control,detector],return_when=asyncio.FIRST_COMPLETED)
+                done,_=await asyncio.wait([receiver,client,deadline,control,detector,guard],return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     if task is not deadline and not task.cancelled() and task.exception():raise task.exception()
                 if deadline in done:await emit(dict(type='status',state='time_limit',message='本次语音已到时限，正在保存记录。'))
@@ -285,8 +344,8 @@ async def live(ws:WebSocket):
                     await remote.send(json.dumps({'type':'session.close'}))
                     with suppress(TimeoutError):await asyncio.wait_for(asyncio.shield(receiver),2)
             finally:
-                for task in (receiver,client,deadline,control,detector):task.cancel()
-                await asyncio.gather(receiver,client,deadline,control,detector,return_exceptions=True)
+                for task in (receiver,client,deadline,control,detector,guard):task.cancel()
+                await asyncio.gather(receiver,client,deadline,control,detector,guard,return_exceptions=True)
     except RecordError:
         await emit(dict(type='error',code='authentication_required',message='登录已失效，请重新登录。'))
     except (ValidationError,ValueError,TypeError,KeyError):
@@ -305,6 +364,11 @@ async def live(ws:WebSocket):
                     await persist(entry)
                 result=await asyncio.to_thread(recorder.finish)
                 if controller.enabled and result['type']=='records.saved':
+                    from .collection_sources import attach_sources
+                    await asyncio.to_thread(attach_sources,uid,result['recording_session_id'],controller,context['references'])
+                    if result['recording_session_id'] not in controller.history_session_ids:
+                        controller.history_session_ids.append(result['recording_session_id'])
+                    await asyncio.to_thread(store_plan,uid,test_data(),controller)
                     try:await asyncio.to_thread(save_result,uid,result['recording_session_id'],controller)
                     except Exception:await emit(dict(type='screening.result_failed',message='对话文字已保存，辅助采集结果未能确认保存，后续需从原话重新核实。'))
                 await emit(result)

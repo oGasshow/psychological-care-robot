@@ -4,7 +4,7 @@ from . import concern_detector
 
 
 class ScreeningMonitor:
-    def __init__(self, controller, update_policy, *, provider='doubao_realtime', emit=None):
+    def __init__(self, controller, update_policy, *, provider='doubao_realtime', emit=None,history=None):
         self.controller, self.update_policy = controller, update_policy
         self.provider, self.emit = provider, emit
         self.turns, self.seen = [], set()
@@ -14,6 +14,17 @@ class ScreeningMonitor:
         self.in_flight = False
         self.checked_count = 0
         self.last_error_code = None
+        self.history=history or []
+
+    def snapshot(self):
+        data=concern_detector.snapshot(self.turns)
+        if self.history:
+            import hashlib,json
+            old=concern_detector.snapshot(self.history[-14:])['turns']
+            data['turns']=old+data['turns'][-16:]
+            data['source_snapshot_hash']=hashlib.sha256(json.dumps(data['turns'],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+        data['historical_danger']=self.controller.history_danger_unresolved
+        return data
 
     def observe(self, entry):
         if not entry.final or not entry.text.strip() or entry.message_id in self.seen:
@@ -27,11 +38,12 @@ class ScreeningMonitor:
 
     def schedule(self, *, force=False):
         if (not self.controller.enabled or self.provider != 'doubao_realtime'
-                or self.controller.stage not in ('companionship', 'waiting_context')
-                or self.user_count < 3 or self.user_count == self.scheduled_count
-                or (not force and self.scheduled_count and self.user_count-self.scheduled_count < 2)):
+                or self.controller.stage not in ('companionship', 'waiting_context','checking_in','collecting')
+                or self.user_count < (1 if self.history or self.controller.stage=='collecting' else 3)
+                or self.user_count == self.scheduled_count
+                or (not force and self.scheduled_count and self.controller.stage!='collecting' and self.user_count-self.scheduled_count < 2)):
             return
-        data = concern_detector.snapshot(self.turns)
+        data = self.snapshot()
         if self.queue.full():
             self.queue.get_nowait()
         self.queue.put_nowait((self.user_count, data))
@@ -42,10 +54,18 @@ class ScreeningMonitor:
             count, data = await self.queue.get()
             self.in_flight = True
             try:
+                if self.controller.stage=='collecting':
+                    from .answer_extractor import extract
+                    item=self.controller.current()
+                    candidate=await extract(data,item)
+                    if self.latest_user_id==data['latest_user_id'] and self.controller.accept_candidate(candidate,item):
+                        await self.update_policy()
+                    self.checked_count=count
+                    continue
                 result = await concern_detector.assess(data)
                 self.checked_count = count
                 self.last_error_code = None
-                fresh = self.latest_user_id == data['latest_user_id']
+                fresh = self.latest_user_id == data['latest_user_id'] and not (self.controller.history_danger_unresolved and count<2)
                 changed = self.controller.apply_decision(result, fresh=fresh)
                 if changed:
                     await self.update_policy()

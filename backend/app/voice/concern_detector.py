@@ -9,7 +9,7 @@ import re
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
-VERSION = 'context-followup-v1'
+VERSION = 'context-followup-v2'
 
 
 class Evidence(BaseModel):
@@ -34,6 +34,8 @@ PROMPT = '''你是后台对话线索整理器，只判断是否值得进一步�
 结合提问与回答的上下文，区分本人自述、否认、第三方转述、引用、假设和短暂日常情绪。
 no_signal：没有足够自述线索；monitor：信息少、短暂情绪或不明确；follow_up：多个用户回合中有明确、持续或影响生活的自述线索，值得补充了解。
 follow_up 必须给出至少两个不同用户消息的逐字原话依据，并包含持续时间或生活影响；不能把助手的话作为依据。
+严重痛苦或明确危险表达的历史也值得进一步关注，不必先满足完整两周的量表条件才了解近况。历史背景不等于当前症状，不能忽略较早线索，也不能认为换通话就解决。
+有historical_danger时先关注本次感受和仍在困扰的念头，普通寒暄、一句“好点了”或用户问功能不足以独立判断可以过渡；不得让问卷代替安全关怀。
 仅低落/兴趣方面选 PHQ-9，仅持续担忧方面选 GAD-7，两方面都有依据才选两者。未触发则 target_scales=[]。
 transition_ready 只表示当前对话适宜温和过渡，不表示临床情绪稳定。仍在明显痛苦、拒绝、急迫或停止交流时必须 false。
 latest_user_quote 为最新用户消息中支持是否适合过渡的逐字原话，不能引用较早的平静状态代替现在。
@@ -66,7 +68,7 @@ def validate(raw, data):
             raise ValueError('insufficient_concern_evidence')
         # Engineering gate for the model, not a clinical or psychometric cutoff.
         quotes = ' '.join(e.quote for e in result.evidence)
-        if not re.search(r'两周|几个星期|几周|多周|星期|个月|半个?月|持续|一直|每天|影响|上不了班|工作|不出门|学不|做不了', quotes):
+        if not re.search(r'两周|几个星期|几周|多周|星期|个月|半个?月|持续|一直|每天|影响|上不了班|工作|不出门|学不|做不了|想死|不想活|崩溃|撑不住', quotes):
             raise ValueError('missing_persistence_or_impact')
         domains = {e.domain for e in result.evidence}
         if 'PHQ-9' in result.target_scales and not domains & {'low_mood', 'interest'}:

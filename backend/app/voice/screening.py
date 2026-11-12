@@ -51,6 +51,39 @@ class Screening:
         self.confirmation_context_id = None
         self.detector = None
         self.detector_status = 'not_checked'
+        self.history_session_ids=[]
+        self.history_danger_unresolved=False
+        self.background=''
+        self.observations=[]
+        self.candidate_context=None
+        self.episode_id=None
+        self.window_end=None
+        self.transport_diagnostics={}
+
+    def inherit(self,context):
+        from .continuity import background_instructions
+        self.history_session_ids=context['session_ids']
+        self.history_danger_unresolved=context['danger_history']
+        self.background=background_instructions(context)
+        if self.enabled and context['danger_history']:
+            self.stage='checking_in'
+            self.target_scales=['PHQ-9']
+            self.signals=context.get('danger_message_ids',[])
+
+    def accept_candidate(self,candidate,item):
+        if self.stage!='collecting' or self.current()!=item or not candidate['relevant']:
+            return False
+        status='awaiting_confirmation' if candidate['value']>=0 else 'needs_frequency_or_window'
+        note=dict(scale=item[0],item=item[1],status=status,answer_id=candidate['answer_id'],
+            question_id=candidate['question_id'],window_id=candidate['window_id'])
+        self.observations=[o for o in self.observations if (o['scale'],o['item'])!=(item[0],item[1])]+[note]
+        if candidate['value']>=0 and self.pending is None:
+            self.pending=(candidate['value'],candidate['answer_id'])
+            self.confirmation_asked=False
+            self.candidate_context=dict(question_context_id=candidate['question_id'],window_context_id=candidate['window_id'],
+                extraction_version='natural-frequency-v1')
+        self.version+=1
+        return True
 
     @property
     def triggered(self):
@@ -59,7 +92,7 @@ class Screening:
     def concern(self, ids, version, target_scales=None):
         # External models only identify a concern. They cannot bypass the pacing
         # decision, user stop, danger override, or select arbitrary instruments.
-        if not self.enabled or self.stage != 'companionship':
+        if not self.enabled or self.stage not in ('companionship','checking_in'):
             return
         targets = target_scales or list(ITEMS)
         if not ids or not targets or any(s not in ITEMS for s in targets):
@@ -75,16 +108,22 @@ class Screening:
             return False
         self.detector_status = 'checked'
         self.decisions = (self.decisions + [result])[-6:]
-        before = (self.stage, self.triggered)
+        before = (self.stage, tuple(self.target_scales))
         if result['decision'] == 'follow_up':
             if not self.triggered:
                 self.concern([e['message_id'] for e in result['evidence']],
                              result['detector_version'], result['target_scales'])
+            else:
+                self.target_scales=list(dict.fromkeys([*self.target_scales,*result['target_scales']]))
+                self.signals=list(dict.fromkeys([*self.signals,*[e['message_id'] for e in result['evidence']]]))
+                if self.stage=='checking_in':self.stage='waiting_context'
             # A late inference may identify a continuing concern, but cannot
             # declare a newer user turn ready for transition.
             if fresh and result['transition_ready'] and self.stage == 'waiting_context':
                 self.stage = 'collecting'
-        if before != (self.stage, self.triggered):
+        elif self.triggered and fresh and result['transition_ready'] and self.stage in ('waiting_context','checking_in'):
+            self.stage='collecting'
+        if before != (self.stage, tuple(self.target_scales)):
             self.version += 1
             return True
         return False
@@ -132,6 +171,9 @@ class Screening:
         before = (self.stage, len(self.answers), self.pending)
         if safety(text)['safety_signal'] == 'explicit_danger_expression':
             self.stage, self.pending = 'urgent', None
+            self.history_danger_unresolved=True
+            self.target_scales=list(dict.fromkeys([*self.target_scales,'PHQ-9']))
+            self.signals=list(dict.fromkeys([*self.signals,entry.message_id]))
         elif self.stage not in ('declined', 'urgent', 'complete'):
             if re.search(r'不想(做|答|继续|聊)|不愿意|别再问|停止问|先不做', text):
                 self.action('decline')
@@ -146,7 +188,10 @@ class Screening:
                     scale, index, _ = self.current()
                     value, source = self.pending
                     self.answers[f'{scale}:{index}'] = dict(value=value, evidence_ids=[source, entry.message_id],
-                                                          confirmation_context_id=self.confirmation_context_id)
+                                                          confirmation_context_id=self.confirmation_context_id,
+                                                          **(self.candidate_context or {}))
+                    self.observations=[o for o in self.observations if (o['scale'],o['item'])!=(scale,index)]
+                    self.candidate_context=None
                     self.pending, self.confirmation_asked = None, False
                     self.question_key = None
                     if scale == 'PHQ-9' and index == 9 and value > 0:
@@ -178,22 +223,30 @@ class Screening:
                     authorization_source='purchase_notice_deployment_declaration',
                     purchase_notice_version=self.notice_version, signal_evidence=self.signals,
                     detector_version=self.detector, detector_status=self.detector_status,
-                    decisions=self.decisions, formal_assessment=False)
+                    decisions=self.decisions, formal_assessment=False,observations=self.observations,
+                    history_session_ids=self.history_session_ids,history_danger_unresolved=self.history_danger_unresolved,
+                    episode_id=self.episode_id,window_end=self.window_end,transport_diagnostics=self.transport_diagnostics)
 
     def instructions(self):
         base = ('你是温和的中文陪伴助手，先倾听回应感受。不诊断，不宣称情绪已稳定，不宣布分数。'
                 '产品在购买须知中说明信息整理和后台辅助评分用途；无需再次征求量表同意、要求用户准备好、报量表名或念题号。'
                 '不得否认或虚假解释信息整理用途，用户询问时如实说明。用户随时可以停止。'
-                '每次至多一个具体问题，允许自然闲聊，不连续追问，不把话题转成答题。')
+                '每次至多一个具体问题，先回应再提问，避免机械串题；用户请你主导时要主动提出与经历相关的问题，不只安慰或让用户自己找话题。'
+                '不提供未经核实的热线号码，不从模型记忆编造联系方式。')+self.background
+        if self.window_end:base+=f'本次回顾范围固定为截至{self.window_end}的前两周，跨会话保持同一回顾范围，不混用不同时段。'
         if not self.enabled:
             return base+'当前会话未启用后台信息采集，只自然陪伴；用户问及功能时如实说明当前未启用，不说系统永远不会主动了解。'
         base += ('用户问“什么情况下会主动了解、是否会发起问卷”时，说明：会结合前面的具体交流，'
                  '在需要进一步了解且适合继续聊时自然问问近况，不需要用户主动要求或说特定口令，也不会据此诊断。'
                  '不要回答“我不会主动发起”“只有你主动提出才会涉及”；不把关于功能的假设问题当成用户症状。')
-        if self.stage in ('companionship', 'waiting_context', 'paused', 'declined'):
-            return base + '当前只自然陪伴，不进行量表相关信息采集，不询问固定条目，不催促。'
+        if self.stage=='checking_in':
+            return base+'上次有需要持续关注的表达，本次先温和询问此刻感受和是否仍被那些念头困住。不要当作已经安全，不直接开始量表，不用问卷确认安全。'
+        if self.stage in ('companionship', 'waiting_context'):
+            return base+'当前先自然了解近况，可围绕用户提到的具体困扰温和问一个问题，留意持续时间和生活影响；后台未安排前不执行固定量表条目，不否认后续会主动了解。'
+        if self.stage in ('paused','declined'):
+            return base+'尊重暂停或停止信息采集，不继续相关追问。'
         if self.stage == 'urgent':
-            return base + '立即停止信息采集，优先关怀与安全支持，鼓励及时获得身边可信任的人及专业支持，不保证安全。'
+            return base + '立即停止信息采集，优先关怀与安全支持，温和了解当前是否有立即伤害自己的可能，鼓励及时获得身边可信任的人及专业支持，不保证安全、不编造热线号码。'
         if self.stage == 'complete':
             return base + '信息整理已结束，继续自然陪伴，不向用户宣布完成问卷、等级或诊断。'
         _, _, topic = self.current()
@@ -217,8 +270,9 @@ def save_result(uid, sid, controller):
     with SessionLocal() as db:
         view=controller.view()
         db.merge(CollectionTrace(session_id=sid,owner=uid,payload={k:view[k] for k in
-            ('stage','triggered','detector_status','detector_version','protocol','purchase_notice_version')}))
-        if controller.triggered:
+            ('stage','triggered','detector_status','detector_version','protocol','purchase_notice_version',
+             'observations','history_session_ids','history_danger_unresolved','episode_id','window_end','transport_diagnostics')}))
+        if has_collected_items(view):
             db.merge(ScreeningResult(session_id=sid, owner=uid, payload=view))
         db.commit()
-    return controller.triggered
+    return has_collected_items(view)

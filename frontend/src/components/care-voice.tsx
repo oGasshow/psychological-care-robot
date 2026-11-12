@@ -13,10 +13,13 @@ export default function CareVoice(){
   const [lines,setLines]=useState<Line[]>([]),[level,setLevel]=useState(0),[muted,setMuted]=useState(false);
   const [recording,setRecording]=useState<Data|null>(null),[notice,setNotice]=useState('点击开始后，浏览器会请求麦克风权限。');
   const [debug,setDebug]=useState<Data|null>(null);
+  const [stalled,setStalled]=useState(false);
   const socket=useRef<WebSocket|null>(null),context=useRef<AudioContext|null>(null),media=useRef<MediaStream|null>(null);
   const capture=useRef<AudioWorkletNode|null>(null),ready=useRef(false),micMuted=useRef(false),stopping=useRef(false);
   const nodes=useRef(new Map<AudioBufferSourceNode,string>()),audioDone=useRef(new Set<string>()),blocked=useRef(new Set<string>());
   const nextAudio=useRef(0),lastMeter=useRef(0),currentAudio=useRef('');
+  const replyWait=useRef(0),watchdog=useRef<ReturnType<typeof setInterval>|null>(null),reconnecting=useRef(false);
+  const speech=useRef({active:false,lastVoice:0,started:0});
 
   function send(value:Data){if(socket.current?.readyState===WebSocket.OPEN)socket.current.send(JSON.stringify(value));}
   const clearPlayback=useCallback(()=>{
@@ -25,6 +28,7 @@ export default function CareVoice(){
     if(currentAudio.current)blocked.current.add(currentAudio.current);
   },[]);
   const releaseAudio=useCallback(()=>{
+    if(watchdog.current){clearInterval(watchdog.current);watchdog.current=null;}
     ready.current=false;media.current?.getTracks().forEach(t=>t.stop());media.current=null;
     capture.current?.disconnect();capture.current=null;clearPlayback();
     if(context.current){void context.current.close().catch(()=>{});context.current=null;}
@@ -50,8 +54,10 @@ export default function CareVoice(){
     if(event.type==='screening.result_failed'){setError(new Error(event.message));return;}
     if(event.type==='session.ready'){ready.current=true;send({type:'unmute'});setState('listening');setNotice('已连接，可以直接说话；说话时插话可打断助手。');}
     else if(event.type==='transcript.delta'||event.type==='transcript.final'){
+      if(event.role==='user'&&event.type==='transcript.final'){speech.current.active=false;replyWait.current=Date.now();setStalled(false);}
+      if(event.role==='assistant'){replyWait.current=0;setStalled(false);}
       setLines(old=>{const line={...event,final:event.type==='transcript.final'} as Line;const index=old.findIndex(v=>v.message_id===line.message_id);return index<0?[...old,line]:old.map((v,i)=>i===index?line:v);});
-    }else if(event.type==='audio.delta')playAudio(event);
+    }else if(event.type==='audio.delta'){replyWait.current=0;setStalled(false);playAudio(event);}
     else if(event.type==='audio.done'){audioDone.current.add(event.message_id);if(![...nodes.current.values()].includes(event.message_id))send({type:'playback',state:'completed',message_id:event.message_id});}
     else if(event.type==='playback.clear'){clearPlayback();if(!stopping.current)setState(micMuted.current?'muted':'listening');}
     else if(event.type==='records.saved'){setRecording(event);setNotice('本次文字记录已保存，可查看历史和报告。');}
@@ -64,7 +70,7 @@ export default function CareVoice(){
     setDebug(null);
     socket.current?.close();socket.current=null;
     releaseAudio();setError(null);setLines([]);setRecording(null);setMuted(false);micMuted.current=false;stopping.current=false;
-    blocked.current.clear();audioDone.current.clear();currentAudio.current='';setState('connecting');setNotice('正在准备麦克风和语音连接…');
+    blocked.current.clear();audioDone.current.clear();currentAudio.current='';replyWait.current=0;setStalled(false);speech.current={active:false,lastVoice:0,started:0};setState('connecting');setNotice('正在准备麦克风和语音连接…');
     try{
       if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)throw Error('当前页面无法使用麦克风，请使用本机 localhost 页面或 HTTPS。');
       const token=localStorage.getItem('access_token');if(!token)throw Error('请先登录再开始语音。');
@@ -74,19 +80,37 @@ export default function CareVoice(){
       const node=new AudioWorkletNode(ctx,'pcm-capture',{numberOfInputs:1,numberOfOutputs:1,channelCount:1});capture.current=node;
       const source=ctx.createMediaStreamSource(stream),silent=ctx.createGain();silent.gain.value=0;source.connect(node);node.connect(silent);silent.connect(ctx.destination);
       const ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/robot-voice/live`);socket.current=ws;
-      ws.onopen=()=>ws.send(JSON.stringify({type:'authenticate',token,device_id:'windows_browser'}));
+      ws.onopen=()=>{
+        ws.send(JSON.stringify({type:'authenticate',token,device_id:'windows_browser'}));
+        watchdog.current=setInterval(()=>{
+          if(replyWait.current&&Date.now()-replyWait.current>25000&&!stopping.current){setStalled(true);setNotice('回复等待较久，可先发送当前这句话，或重新连接；已有最终文字会保留。');}
+        },1000);
+      };
       ws.onmessage=e=>{if(socket.current!==ws)return;try{receive(JSON.parse(e.data));}catch{setError(new Error('收到的语音数据无法处理，请重新开始。'));finish();}};
       ws.onerror=()=>{if(socket.current!==ws)return;setError(new Error('语音连接未能建立，请检查服务状态后重试。'));setState('error');releaseAudio();};
-      ws.onclose=()=>{if(socket.current!==ws)return;socket.current=null;releaseAudio();setLevel(0);setState(old=>old==='error'?'error':'ended');};
-      node.port.onmessage=e=>{if(!ready.current||micMuted.current)return;if(Date.now()-lastMeter.current>100){lastMeter.current=Date.now();setLevel(Math.min(100,e.data.level*500));}if(ws.readyState===WebSocket.OPEN){if(ws.bufferedAmount>128000){setError(new Error('网络发送拥堵，本次收音已停止。'));finish();return;}ws.send(e.data.pcm);}};
+      ws.onclose=()=>{if(socket.current!==ws)return;socket.current=null;releaseAudio();setLevel(0);setState(old=>old==='error'?'error':'ended');if(reconnecting.current){reconnecting.current=false;window.setTimeout(()=>void start(),0);}};
+      node.port.onmessage=e=>{
+        if(!ready.current||micMuted.current)return;
+        const now=Date.now();
+        if(now-lastMeter.current>100){lastMeter.current=now;setLevel(Math.min(100,e.data.level*500));}
+        if(ws.readyState===WebSocket.OPEN){
+          if(ws.bufferedAmount>128000){setError(new Error('网络发送拥堵，本次收音已停止。'));finish();return;}
+          ws.send(e.data.pcm);
+          if(e.data.level>.015){if(!speech.current.active)speech.current.started=now;speech.current.active=true;speech.current.lastVoice=now;}
+          if(speech.current.active&&(now-speech.current.lastVoice>1000||now-speech.current.started>30000)){
+            send({type:'commit'});speech.current.active=false;replyWait.current=now;
+          }
+        }
+      };
     }catch(e){releaseAudio();setState('error');setError(e instanceof Error?e:new Error('无法打开麦克风。'));}
   }
   function toggleMute(){const next=!micMuted.current;micMuted.current=next;setMuted(next);media.current?.getAudioTracks().forEach(t=>{t.enabled=!next;});send({type:next?'mute':'unmute'});setState(next?'muted':'listening');if(next)setLevel(0);}
+  function recover(){const previous=socket.current;if(!previous){void start();return;}reconnecting.current=true;finish();window.setTimeout(()=>{if(socket.current===previous)previous.close();},7000);}
   async function retrySave(){try{const result=await api('robot-voice/retry-records',{method:'POST'});setNotice(result.pending?'仍有文字等待保存，请稍后重试。':'待保存记录已处理，可在历史中查看。');}catch(e){setError(e);}}
   async function readDiagnostics(){try{setDebug(await api('robot-voice/diagnostics'));}catch(e){setError(e);}}
   const connected=['listening','muted','playing','interrupted'].includes(state),canStart=['idle','ended','error'].includes(state);
   return <CareShell title="和陪伴助手聊一聊" subtitle="直接说话即可交流，实时文字会显示在这里。">
-    <div className="voice-layout"><section className="care-card voice-console"><div className={`voice-orb ${connected?'active':''}`} aria-hidden="true">声</div><h2>{names[state]||state}</h2><p className="voice-notice" role="status">{notice}</p><div className="voice-meter" aria-label="麦克风输入强度"><span style={{width:`${level}%`}}/></div><p className="care-meta">麦克风输入 · 建议使用耳机，减少回声</p><div className="voice-controls">{canStart?<button className="care-btn" disabled={!config?.enabled} onClick={start}>开始语音对话</button>:<><button className="care-btn secondary" disabled={!connected} onClick={toggleMute}>{muted?'继续收音':'暂停收音'}</button><button className="care-btn secondary" disabled={!connected} onClick={interrupt}>打断回复</button><button className="care-btn" disabled={!connected} onClick={finish}>结束并保存</button></>}</div>{config&&!config.enabled&&<p className="care-notice">{config.message}</p>}<ErrorBox error={error}/><p className="care-meta">{config?.is_test?'当前为联调测试，文字记录带测试标记。':'当前记录带非测试标记；不代表已完成真实性或专业核验。'}</p></section>
+    <div className="voice-layout"><section className="care-card voice-console"><div className={`voice-orb ${connected?'active':''}`} aria-hidden="true">声</div><h2>{names[state]||state}</h2><p className="voice-notice" role="status">{notice}</p><div className="voice-meter" aria-label="麦克风输入强度"><span style={{width:`${level}%`}}/></div><p className="care-meta">麦克风输入 · 建议使用耳机，减少回声</p><div className="voice-controls">{canStart?<button className="care-btn" disabled={!config?.enabled} onClick={start}>开始语音对话</button>:<><button className="care-btn secondary" disabled={!connected} onClick={toggleMute}>{muted?'继续收音':'暂停收音'}</button><button className="care-btn secondary" disabled={!connected} onClick={interrupt}>打断回复</button><button className="care-btn" disabled={!connected} onClick={finish}>结束并保存</button></>}</div>{config&&!config.enabled&&<p className="care-notice">{config.message}</p>}<ErrorBox error={error}/>{connected&&<div className="care-actions"><button className="care-btn secondary" disabled={!lines.some(l=>l.role==='user'&&!l.final)} onClick={()=>{send({type:'commit'});speech.current.active=false;replyWait.current=Date.now();}}>发送这句话</button><button className="care-btn secondary" onClick={recover}>{stalled?'回复卡住，重新连接并保留记录':'重新连接并保留记录'}</button></div>}<p className="care-meta">{config?.is_test?'当前为联调测试，文字记录带测试标记。':'当前记录带非测试标记；不代表已完成真实性或专业核验。'}</p></section>
     <section className="care-card voice-transcripts"><div className="voice-transcript-heading"><h2>正在聊的内容</h2><span className="care-badge">实时字幕</span></div>{!lines.length&&<div className="voice-empty">开始后，您说的话和助手回复会依次显示。<br/>语音对话中可以随时暂停收音或打断回复。</div>}<div aria-live="polite" aria-relevant="additions text" className="voice-lines">{lines.map(line=><article className={`voice-line ${line.role}`} key={line.message_id} data-testid={`voice-line-${line.message_id}`}><header><strong>{line.role==='user'?'您':'陪伴助手'}</strong><span>{line.interrupted?'已打断':line.final?'最终文字':'识别 / 回复中'}</span></header><p>{line.text}</p>{line.occurred_at&&<time>{date(line.occurred_at)}</time>}</article>)}</div></section></div>
     <section className="care-card voice-record-status"><h2>本次记录</h2><p>{recording?.type==='records.saved'?'双方最终文字已保存到历史。':connected?'已确认的最终文字写入持久队列，结束会话后上传到历史。':'结束后可查看本次文字记录与报告。'}</p><div className="care-actions">{recording?.recording_session_id&&<><Link className="care-btn secondary" href={`/robot-care/sessions/${recording.recording_session_id}`}>查看本次记录</Link><Link className="care-btn" href="/robot-care/report" onClick={()=>sessionStorage.setItem('care-report-scope',JSON.stringify({session_ids:[recording.recording_session_id]}))}>生成本次回顾</Link></>}<button className="care-btn secondary" disabled={!canStart} onClick={retrySave}>重试待保存记录</button></div></section>
     {config?.is_test&&<details className="care-card care-no-print"><summary>开发联调状态（仅测试环境）</summary><p className="care-meta">只查询本人当前通话的后台状态，不会强制触发采集。</p><button className="care-btn secondary" onClick={readDiagnostics}>查看后台状态</button>{debug&&<div role="status"><p>{debug.message}</p>{debug.active&&<p className="care-meta">用户最终转录：{debug.user_turns} 段 · 已检测到第 {debug.checked_user_turns} 段<br/>阶段：{debug.stage} · 检测状态：{debug.detector_status}<br/>指令版本：已发送 {debug.sent_policy_version??'无'} / 豆包已确认 {debug.applied_policy_version??'无'}</p>}</div>}</details>}
