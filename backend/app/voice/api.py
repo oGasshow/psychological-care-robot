@@ -87,7 +87,11 @@ def screening_result(sid:int,response:Response,uid=Depends(owner)):
     with SessionLocal() as db:
         owned(db,sid,uid)
         value=db.get(ScreeningResult,sid)
-        return dict(result=value.payload if value and value.owner==uid and has_collected_items(value.payload) else None)
+        if not value or value.owner!=uid or not has_collected_items(value.payload):
+            return dict(result=None)
+        from ..care.collection_history import collection_history
+        public=collection_history(db,uid,session_ids=[sid],limit=1)[0]
+        return dict(result={**value.payload,'scales':public['scales'],'source_status':public['source_status']})
 
 def test_data():
     return os.getenv('APP_ENV','production')!='production' or os.getenv('ROBOT_CARE_DEMO_DATABASE')=='true'

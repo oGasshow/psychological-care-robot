@@ -352,8 +352,9 @@ def delete_session(sid: ResourceID, uid=Depends(owner)):
         if row.state != 'deleted':
             from .care.service import clear_session
             clear_session(db, sid)
-            from .voice.screening import ScreeningResult
+            from .voice.screening import CollectionTrace,ScreeningResult
             db.query(ScreeningResult).filter_by(session_id=sid,owner=uid).delete()
+            db.query(CollectionTrace).filter_by(session_id=sid,owner=uid).delete()
             db.query(RecordMessage).filter_by(recording_session_id=sid).delete()
             for name in ('device_id', 'started_at', 'is_test', 'created_at', 'ended_at', 'last_sequence_no'):
                 setattr(row, name, None)

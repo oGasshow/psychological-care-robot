@@ -30,7 +30,7 @@ def settings():
     if simulator_value not in ('true','false'):
         raise RuntimeError('invalid_care_configuration')
     simulator=simulator_value=='true'
-    if env not in ('development','test','production') or engine not in ('rules','ollama') or provider not in ('disabled','fixture','live'):
+    if env not in ('development','test','production') or engine not in ('rules','ollama','doubao_realtime') or provider not in ('disabled','fixture','live'):
         raise RuntimeError('invalid_care_configuration')
     if env=='production' and (provider=='fixture' or simulator):
         raise RuntimeError('demo_feature_forbidden_in_production')
@@ -38,7 +38,7 @@ def settings():
         raise RuntimeError('fixture_requires_dedicated_demo_database')
     if engine=='ollama' and (not os.getenv('ROBOT_CARE_MODEL_BASE_URL') or not os.getenv('ROBOT_CARE_MODEL_NAME')):
         raise RuntimeError('model_configuration_required')
-    return Settings(env,engine,provider,simulator,bounded('ROBOT_CARE_LEASE_SECONDS',30,1,600),
+    return Settings(env,engine,provider,simulator,bounded('ROBOT_CARE_LEASE_SECONDS',90 if engine=='doubao_realtime' else 30,1,600),
                     bounded('ROBOT_CARE_MAX_ATTEMPTS',3,1,10),bounded('ROBOT_CARE_RETRY_SECONDS',2,0,300),
                     bounded('ROBOT_CARE_POLICY_SECONDS',3600,1,86400),bounded('ROBOT_CARE_POLL_SECONDS',1,1,30))
 
@@ -46,4 +46,10 @@ def engine_configuration():
     from care_core import CoreSettings, configuration
     active=settings()
     core=CoreSettings.from_env()
+    if active.engine=='doubao_realtime':
+        from .sentiment import configuration as sentiment_configuration
+        config=sentiment_configuration(core)
+        if active.lease_seconds<config['config_summary']['timeout_seconds']+10:
+            raise RuntimeError('analysis_lease_too_short')
+        return active,core,config
     return active,core,configuration(active.engine,core)

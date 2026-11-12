@@ -243,6 +243,7 @@ def delivery_view(row):
         real_delivery_status='not_connected')
 
 def session_status(db,session):
+    from .safety_notice import dialogue_danger_notice
     source=db.query(RecordMessage).filter_by(recording_session_id=session.id).order_by(RecordMessage.sequence_no).all()
     counts={label:0 for label in ('positive','neutral','negative')}
     statuses={state:0 for state in ('pending','running','retry_wait','failed','unable_to_determine','excluded','invalidated','succeeded')}
@@ -267,6 +268,8 @@ def session_status(db,session):
                 counts[value['emotion_label']]+=1
             else:
                 statuses['unable_to_determine']+=1
-        refs.append({'record_id':row.id,'task_id':active.id,'input_revision':active.input_revision,'classification_status':value['classification_status']})
+        refs.append({'record_id':row.id,'task_id':active.id,'input_revision':active.input_revision,
+                     'classification_status':value['classification_status'],'emotion_label':value['emotion_label'],
+                     'analysis_state':active.state,'engine_kind':active.engine_kind,'engine_version':active.engine_version})
     return dict(**session_summary(db,session),emotion_counts=counts,analysis_counts=statuses,
-                excluded_records=excluded,source_references=refs,data_as_of=now())
+                excluded_records=excluded,source_references=refs,danger_notice=dialogue_danger_notice(db,source),data_as_of=now())

@@ -110,25 +110,8 @@ def report(db,uid,scope):
     rows=result.pop('records')
     # Evaluate the current effective user text independently of job/model state.
     # A negative emotion or an assessment score never triggers this warning.
-    from care_core import safety
-    danger_sources=[]
-    unclear=0
-    for row in rows:
-        if row.role!='user' or row.text_status!='completed':
-            continue
-        draft=effective(db,row)
-        signal=safety(draft['effective_content'])
-        unclear+=signal['safety_signal']=='undetermined'
-        if signal['safety_signal']=='explicit_danger_expression':
-            danger_sources.append(dict(record_id=row.id,recording_session_id=row.recording_session_id,
-                occurred_at=row.occurred_at,input_revision=draft['input_revision'],
-                is_test=next(source['is_test'] for source in result['source_references'] if source['record_id']==row.id),
-                expressions=signal.get('matched_expressions',[]),rule_ids=signal['matched_rule_ids']))
-    danger_notice=dict(status='explicit_danger_expression' if danger_sources else 'not_detected',
-        count=len(danger_sources),sources=danger_sources,unclear_count=unclear,
-        basis='当前范围内用户已完成对话的有效稿；明确危险表达规则，排除否认、引用和他人转述。',
-        action='请优先安排人工关注与核实，不能仅凭本报告作诊断或自动采取处置。',
-        limitation='未检出规则内明确危险表达不代表无风险；普通消极情绪和量表分数不触发本提示。')
+    from .safety_notice import dialogue_danger_notice
+    danger_notice=dialogue_danger_notice(db,rows)
     session_values=[session_status(db,row) for row in sessions]
     warnings=[]
     if selected is not None:

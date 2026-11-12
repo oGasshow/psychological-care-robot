@@ -203,7 +203,11 @@ def safety(text: str) -> dict:
         without_denials = clause
         for pattern in _RULES["negated_danger_patterns"]:
             without_denials = re.sub(pattern, "", without_denials)
-        expressions=list(dict.fromkeys(match.group(0) for pattern in _RULES["danger_patterns"] for match in re.finditer(pattern,without_denials)))
+        expressions=list(dict.fromkeys(
+            match.group(0) for pattern in _RULES["danger_patterns"]
+            for match in re.finditer(pattern, without_denials)
+            if not re.search(_RULES["danger_hypothetical_prefix"], without_denials[:match.start()])
+        ))
         if expressions:
             return {"safety_signal": "explicit_danger_expression", "reason_code": "explicit_first_person_danger",
                     "matched_rule_ids": ["safety_explicit_first_person_v1"], "matched_expressions":expressions,

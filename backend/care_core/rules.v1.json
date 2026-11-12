@@ -1,5 +1,5 @@
 {
-  "rules_version": "rules-v1",
+  "rules_version": "rules-v1.1",
   "scope": "single_current_user_completed_text; finite Chinese text rules, not a clinical assessment",
   "positive": {
     "emotion_positive_daily": ["开心", "高兴", "愉快", "快乐", "满意", "幸福", "轻松", "期待", "心情不错", "舒心"]
@@ -18,11 +18,12 @@
   "hypothetical_pattern": "(?:希望|但愿|如果|假如|想要|想)(?:变得|能够|可以|能)?$",
   "reporting_pattern": "^(?:今天|昨天|最近|刚才)?(?:我(?:听到|听说|听|看到|看见))?(?:我的)?(?:朋友|家人|同事|邻居|别人|他|她|他们|她们|妈妈|爸爸|孩子|新闻|故事|电影|书里|网上)",
   "danger_patterns": [
-    "(?:我|本人)(?:现在|真的|已经|已经决定|决定|打算|准备)?(?:想要|想|要|准备|打算|决定)(?:自杀|结束自己的生命|结束生命|伤害自己|伤害别人|杀死别人|杀人)",
-    "(?:我|本人)(?:现在|真的|已经)?不想活了",
-    "(?:我|本人)(?:现在|真的)?想死"
+    "(?:我|本人)(?:现在|最近|真的|已经|觉得|感觉|自己|有点儿|有点|有一点|也|还是){0,6}(?:想要|想|要|准备|打算|决定)(?:自杀|结束自己的生命|结束生命|伤害自己|伤害别人|杀死别人|杀人)",
+    "(?:我|本人)(?:现在|最近|真的|已经|觉得|感觉|自己|有点儿|有点|有一点|也|还是){0,6}不想活(?:了)?",
+    "(?:我|本人)(?:现在|最近|真的|已经|觉得|感觉|自己|有点儿|有点|有一点|也|还是){0,6}想死"
   ],
   "danger_context_terms": ["自杀", "不想活", "想死", "伤害自己", "伤害别人", "结束生命", "结束自己的生命", "杀人"],
-  "negated_danger_patterns": ["(?:我|本人)(?:现在|真的)?(?:不会|不想|没有想过|从没想过|并不想|不准备|没有打算)(?:去|要)?(?:自杀|伤害自己|伤害别人|结束生命|结束自己的生命|杀人|死)"],
+  "negated_danger_patterns": ["(?:我|本人)(?:现在|最近|真的|已经|觉得|感觉|自己|有点儿|有点|有一点|也|还是){0,6}(?:不会|不想|没有想过|从没想过|并不想|不准备|没有打算)(?:去|要)?(?:自杀|伤害自己|伤害别人|结束生命|结束自己的生命|杀人|死)"],
+  "danger_hypothetical_prefix": "(?:如果|假如|假设|要是|比如|举例|测试|模拟)",
   "precedence": ["quoted_or_reported_text_excluded", "double_negation_is_unknown", "hypothetical_cues_excluded", "negated_negative_cues_excluded", "negated_positive_is_negative", "mixed_is_unknown", "finite_fact_patterns_only_else_unknown"]
 }

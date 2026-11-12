@@ -118,7 +118,10 @@ class Worker:
         if claim is None:
             return False
         try:
-            result=(self.analyzer or analyze)(claim['text'],self.active.engine,settings=self.core)
+            analyzer=self.analyzer or analyze
+            if self.analyzer is None and self.active.engine=='doubao_realtime':
+                from .sentiment import analyze as analyzer
+            result=analyzer(claim['text'],self.active.engine,settings=self.core)
             self.finish(claim,result=result)
         except CoreAnalysisError as error:
             self.finish(claim,error=error)

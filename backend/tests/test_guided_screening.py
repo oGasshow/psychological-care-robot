@@ -82,7 +82,7 @@ def test_ambiguous_answers_never_scored(text):
 
 
 def test_refusal_pause_and_danger_override_model():
-    for text,expected in [('不想继续了','declined'),('我想先休息一下','paused'),('我不想活了','urgent')]:
+    for text,expected in [('不想继续了','declined'),('我想先休息一下','paused'),('我不想活了','urgent'),('我有点不想活了都。','urgent')]:
         s=collect();say(s,text);assert s.stage==expected
         s.apply_decision(decision())
         assert s.stage==expected

@@ -1,0 +1,9 @@
+'use client';
+import Link from 'next/link';
+import {Data,date,list} from '@/lib/care-api';
+
+const stages:Record<string,string>={not_recorded:'未保存采集结果',companionship:'自然陪伴，未进入采集',waiting_context:'等待适合继续了解的时机',collecting:'信息采集中',paused:'已暂停',declined:'用户已停止',urgent:'安全优先，停止量表信息采集',complete:'采集已完成，待核实'};
+
+export default function CollectionResults({items}:{items:Data[]}){
+  return <section className="care-card" data-testid="conversation-collection-results"><h2>对话辅助采集 · PHQ-9 / GAD-7</h2><p>显示最近 100 个语音记录会话。只整理对话中已确认的信息；缺项不补零，未齐不出总分。辅助合计待核实，不等同于正式施测。</p>{!items.length&&<p className="care-empty">暂无语音会话及辅助采集结果。</p>}{items.map(item=><article className="care-message" key={item.recording_session_id} data-testid={`collection-${item.recording_session_id}`}><p><Link href={`/robot-care/sessions/${item.recording_session_id}`}>会话 #{item.recording_session_id}</Link> · {date(item.started_at)}{item.is_test&&<span className="care-badge test">测试环境会话</span>}</p><p><strong>{stages[item.stage]||'采集状态待核实'}</strong>{item.detector_status==='unavailable'&&' · 上下文判断服务暂不可用'}</p>{item.source_status==='needs_revalidation'&&<p className="care-notice">原话已更正或依据不完整，需要重新核实，暂不显示合计。</p>}{list(item.scales).map(s=><p key={s.scale}>{s.scale}：已确认 {s.answered}/{s.required} 项 · {s.total==null?'信息未齐或待核实，总分未生成':`辅助合计 ${s.total}（待核实）`}</p>)}{!list(item.scales).length&&<p className="care-meta">没有已确认条目，未生成量表分数。{item.stage==='not_recorded'?'该历史会话未保存采集进度，无法据此还原当时未进入采集的原因。':''}</p>}</article>)}</section>;
+}

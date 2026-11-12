@@ -264,8 +264,10 @@ def prepare(root,empty=False,presentation=False):
     print(json.dumps({'prepared':True,'runtime':str(root),'credentials_file':'access.json (runtime only)'}))
 
 def environment(root,cfg):
+    from dotenv import dotenv_values
+    analysis_engine=os.getenv('ROBOT_CARE_ANALYSIS_ENGINE') or dotenv_values(BACKEND/'.env').get('ROBOT_CARE_ANALYSIS_ENGINE') or 'rules'
     return dict(os.environ,PYTHONUTF8='1',APP_ENV='development',DATABASE_URL='sqlite:///'+Path(cfg['database']).as_posix(),
-        SECRET_KEY=cfg['secret'],SQLITE_BUSY_MS='1000',MODELSCOPE_API_KEY='',ROBOT_CARE_ANALYSIS_ENGINE='rules',ROBOT_UPLOAD_POLICY='after_close',
+        SECRET_KEY=cfg['secret'],SQLITE_BUSY_MS='1000',MODELSCOPE_API_KEY='',ROBOT_CARE_ANALYSIS_ENGINE=analysis_engine,ROBOT_UPLOAD_POLICY='after_close',
         ROBOT_CARE_ASSESSMENT_PROVIDER='fixture' if cfg.get('seed_sample_data',True) else 'disabled',ROBOT_CARE_DEMO_DATABASE='true',ROBOT_CARE_FIXTURE_FILE=cfg['fixture'],
         ROBOT_CARE_SIMULATOR_ENABLED='true')
 

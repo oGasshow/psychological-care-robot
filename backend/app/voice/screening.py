@@ -31,6 +31,13 @@ class ScreeningResult(Base):
     owner=Column(Integer,ForeignKey('users.id'),nullable=False,index=True)
     payload=Column(JSON,nullable=False)
 
+class CollectionTrace(Base):
+    """Progress receipt, never an empty PHQ/GAD assessment record."""
+    __tablename__='robot_voice_collection_traces'
+    session_id=Column(Integer,ForeignKey('robot_record_sessions.id',ondelete='CASCADE'),primary_key=True)
+    owner=Column(Integer,ForeignKey('users.id'),nullable=False,index=True)
+    payload=Column(JSON,nullable=False)
+
 class Screening:
     def __init__(self, enabled=False, notice_version=''):
         self.enabled = enabled
@@ -205,9 +212,13 @@ def has_collected_items(payload):
 def save_result(uid, sid, controller):
     from ..database import SessionLocal
     # Ordinary conversation must not create empty PHQ/GAD records.
-    if not controller.triggered:
+    if not controller.enabled:
         return False
     with SessionLocal() as db:
-        db.merge(ScreeningResult(session_id=sid, owner=uid, payload=controller.view()))
+        view=controller.view()
+        db.merge(CollectionTrace(session_id=sid,owner=uid,payload={k:view[k] for k in
+            ('stage','triggered','detector_status','detector_version','protocol','purchase_notice_version')}))
+        if controller.triggered:
+            db.merge(ScreeningResult(session_id=sid, owner=uid, payload=view))
         db.commit()
-    return True
+    return controller.triggered

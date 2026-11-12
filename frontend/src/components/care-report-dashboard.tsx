@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import CareShell,{ErrorBox} from '@/components/care-shell';
+import DangerNotice from '@/components/care-danger-notice';
 import {DataNatureBadge,reportDataNature,dataNatureText} from '@/components/care-results';
 import {ApiError,Data,date,insights,label,list} from '@/lib/care-api';
 import {Card,CardContent,CardDescription,CardFooter,CardHeader,CardTitle} from '@/components/report-ui/card';
@@ -60,7 +61,7 @@ function Evidence({ids,facts}:{ids:unknown;facts:Data}){
 function ReportBody({dto,busy}:{dto:Data;busy:boolean}){
   const facts=dto.report_facts||{},nature=reportDataNature(facts),n=dto.narrative||{},c=n.content||{},evidence=list(facts.evidence);
   return <article className="care-report report-template" data-testid="report-dto" data-is-test={nature==='test_only'?'true':'false'} data-data-nature={nature} data-generated-at={dto.generated_at}>
-    {list(dto.conversation_assessments).length>0&&<section className="care-card"><h2>对话辅助采集 · 待核实</h2><p>以下仅为已确认条目的整理，改写问法未经正式测量效度验证；未完成不出总分，原话更正后需重新核实，不用于诊断。</p>{list(dto.conversation_assessments).map(a=><div key={a.recording_session_id}><p>会话 #{a.recording_session_id}</p>{list(a.scales).map(s=><p key={s.scale}>{s.scale}：已确认 {s.answered}/{s.required} 项 · {s.total===null?'信息未齐，总分未生成':`辅助合计 ${s.total}（待核实）`}</p>)}</div>)}</section>}
+    {list(dto.conversation_assessments).length>0&&<section className="care-card"><h2>对话辅助采集 · 待核实</h2><p>以下仅为已确认条目的整理，改写问法未经正式测量效度验证；未完成不出总分，原话更正后需重新核实，不用于诊断。</p>{list(dto.conversation_assessments).map(a=><div key={a.recording_session_id}><p>会话 #{a.recording_session_id}</p>{a.source_status==='needs_revalidation'&&<p className="care-notice">原话已更正或依据不完整，合计已隐藏，需要重新核实。</p>}{list(a.scales).map(s=><p key={s.scale}>{s.scale}：已确认 {s.answered}/{s.required} 项 · {s.total===null?'信息未齐，总分未生成':`辅助合计 ${s.total}（待核实）`}</p>)}</div>)}</section>}
     <div className="care-print-stamp" data-testid="report-print-nature">{dataNatureText(nature)} · 辅助陪伴回顾 · 非诊断用途</div>
     <header className="report-heading"><div><div className="care-eyebrow">陪伴记录 / 一段时间的回顾</div><h1>近期陪伴回顾</h1><p className="report-range">{rangeText(dto.scope)}</p></div><div className="report-identity"><span className="care-badge" data-testid="report-nature-notice">{dataNatureText(nature)}</span><p>{dto.anonymous_id}</p><p className="care-meta">数据截至 {date(dto.data_as_of)}</p></div></header>
     <DangerNotice data={dto.danger_notice}/>
@@ -83,4 +84,3 @@ function ChartGroup({group:g,facts}:{group:Data;facts:Data}){
     <details className="report-evidence"><summary>查看每日数据与分类口径</summary><p className="care-meta">{g.engine_kind} / {g.engine_version} / {g.config_version}。仅比较相同引擎、配置、测试属性的完整周期；展示门槛不属于临床阈值。</p>{facts.comparison_scope&&<p className="care-meta">前一周期：{rangeText(facts.comparison_scope)}</p>}<div className="care-table-wrap"><table><thead><tr><th>日期</th><th>积极</th><th>中性</th><th>消极</th><th>记录情况</th></tr></thead><tbody>{rows.map(d=><tr key={d.day}><td>{d.day}</td><td>{d.positive}</td><td>{d.neutral}</td><td>{d.negative}</td><td>{d.classified_count?'已有有效分类':d.has_user_records?'有记录，暂无该口径分类':'无记录'}</td></tr>)}</tbody></table></div></details>
   </div>;
 }
-function DangerNotice({data}:{data:Data}){const sources=list(data?.sources);if(!sources.length)return null;return <section className="care-danger" data-testid="report-danger-alert" aria-label="明确危险表达提示"><div className="care-danger-heading"><strong>重要风险提示：对话中出现明确危险表达</strong><p>请优先安排人工关注与核实</p></div><p>本次范围内有 <strong>{sources.length}</strong> 条当前有效用户对话触发明确危险表达规则。</p><p>{data.action}</p><ol>{sources.map((s,i)=><li className="care-danger-source" key={i}><p><strong>对话依据 #{s.record_id}</strong> · 会话 #{s.recording_session_id} · 修订 {s.input_revision} · {date(s.occurred_at)} <DataNatureBadge isTest={s.is_test}/></p>{list(s.expressions).map((v,j)=><blockquote key={j}>{String(v)}</blockquote>)}</li>)}</ol><p className="care-meta">仅依据当前有效稿中的明确表达，需要人工核实，不作临床风险等级判断。</p></section>;}
