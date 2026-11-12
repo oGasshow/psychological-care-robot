@@ -83,6 +83,43 @@ def test_bad_collection_config_keeps_ordinary_voice_available(actors,monkeypatch
         assert not any(e['type']=='session.update' for e in received)
 
 
+def test_two_capability_questions_do_not_trigger_and_diagnostics_explain_why(actors,monkeypatch):
+    from test_voice_bridge import cloud,setup_bridge
+    from app.voice import api
+    a,b=actors
+    questions=['我要有什么样的标志，你才会想要让我答问卷？',
+               '那如果你能够感受到我明显的有心理不健康的趋势的时候，也不会主动向我提问吗？']
+    with cloud(user_texts=questions) as (url,received):
+        setup_bridge(monkeypatch,url)
+        monkeypatch.setenv('ROBOT_CARE_GUIDED_SCREENING_ENABLED','true')
+        monkeypatch.setenv('ROBOT_CARE_PURCHASE_NOTICE_VERSION','purchase-v1')
+        async def forbidden(data):raise AssertionError('Two turns must not invoke inference')
+        monkeypatch.setattr(detector,'assess',forbidden)
+        with a.client.websocket_connect('/api/robot-voice/live') as ws:
+            ws.send_json(dict(type='authenticate',token=a.token))
+            while ws.receive_json()['type']!='session.ready':pass
+            for _ in questions:
+                ws.send_bytes(b'\0'*640)
+                while True:
+                    e=ws.receive_json()
+                    if e['type']=='transcript.final' and e['role']=='user':break
+            result=a.request('GET','/api/robot-voice/diagnostics')
+            dto=result.json()
+            assert result.headers['cache-control']=='no-store'
+            assert dto['active'] and dto['user_turns']==2 and dto['checked_user_turns']==0
+            assert dto['stage']=='companionship' and '至少 3 段' in dto['message']
+            assert b.request('GET','/api/robot-voice/diagnostics').json()['active'] is False
+            assert a.client.get('/api/robot-voice/diagnostics').status_code==401
+            assert 'fictional-key' not in result.text and 'questions' not in dto
+            first=received[0]['session']['instructions']
+            assert '无需再次征求量表同意' in first
+            assert '不把关于功能的假设问题当成用户症状' in first
+            assert '不施测或推荐量表' not in first
+            ws.send_json(dict(type='finish'))
+            while ws.receive_json()['type']!='records.saved':pass
+    assert a.request('GET','/api/robot-voice/diagnostics').json()['active'] is False
+
+
 def test_stale_inference_only_flags_concern_then_rechecks_latest(monkeypatch):
     async def scenario():
         entered=asyncio.Event();release=asyncio.Event();evaluations=[]

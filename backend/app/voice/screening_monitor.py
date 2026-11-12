@@ -11,6 +11,9 @@ class ScreeningMonitor:
         self.user_count, self.scheduled_count = 0, 0
         self.queue = asyncio.Queue(maxsize=1)
         self.latest_user_id = None
+        self.in_flight = False
+        self.checked_count = 0
+        self.last_error_code = None
 
     def observe(self, entry):
         if not entry.final or not entry.text.strip() or entry.message_id in self.seen:
@@ -37,8 +40,11 @@ class ScreeningMonitor:
     async def run(self):
         while True:
             count, data = await self.queue.get()
+            self.in_flight = True
             try:
                 result = await concern_detector.assess(data)
+                self.checked_count = count
+                self.last_error_code = None
                 fresh = self.latest_user_id == data['latest_user_id']
                 changed = self.controller.apply_decision(result, fresh=fresh)
                 if changed:
@@ -52,7 +58,11 @@ class ScreeningMonitor:
                 # No keyword fallback, forced questionnaire, guessed answers,
                 # raw private text or provider exception in the browser.
                 self.controller.detector_status = 'unavailable'
+                self.checked_count = count
+                self.last_error_code = 'context_detector_unavailable'
                 if self.emit:
                     await self.emit(dict(type='screening.detector_checked', status='unavailable'))
+            finally:
+                self.in_flight = False
             if self.user_count > count and self.queue.empty():
                 self.schedule(force=True)

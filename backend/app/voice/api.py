@@ -24,6 +24,36 @@ router=APIRouter(prefix='/api/robot-voice',tags=['Doubao voice'])
 ACTIVE=set()
 RUNTIMES={}
 
+
+@router.get('/diagnostics')
+async def diagnostics(response:Response,uid=Depends(owner)):
+    """Read-only owner diagnostics; never triggers a model or returns excerpts/keys."""
+    response.headers['Cache-Control']='no-store'
+    runtime=RUNTIMES.get(uid)
+    try:enabled=collection_policy().enabled
+    except (ValueError,TypeError):enabled=False
+    if not runtime:
+        return dict(active=False,conditional_collection_enabled=enabled,message='当前没有正在进行的语音会话。')
+    controller=runtime['controller'];monitor=runtime.get('monitor')
+    decision=controller.decisions[-1]['decision'] if controller.decisions else None
+    count=monitor.user_count if monitor else 0
+    applied=runtime.get('applied_policy_version')
+    if not controller.enabled:message='本次会话未启用后台信息采集。'
+    elif controller.stage=='collecting':message='豆包已确认采集指令，可继续自然交流。' if applied==controller.version else '采集任务已下发，正在等待豆包确认。'
+    elif controller.stage=='waiting_context':message='已有进一步了解的线索，正在等待适合自然过渡的对话时机。'
+    elif controller.stage in ('paused','declined','urgent','complete'):message='本次采集已暂停或结束，不会强行继续。'
+    elif monitor and monitor.in_flight:message='正在后台核查对话，语音交流可以继续。'
+    elif controller.detector_status=='unavailable':message='后台检测暂未完成，请稍后再试；没有据此启动采集。'
+    elif count<3:message=f'已收到 {count} 段用户最终转录；至少 3 段后才进行首次后台检测。'
+    else:message='本次尚未触发进一步采集；关于系统功能的提问不等于症状自述。'
+    return dict(active=True,conditional_collection_enabled=controller.enabled,session_id=runtime['session_id'],
+                stage=controller.stage,user_turns=count,first_check_min_turns=3,
+                checked_user_turns=monitor.checked_count if monitor else 0,
+                detector_running=bool(monitor and monitor.in_flight),detector_status=controller.detector_status,
+                last_decision=decision,target_scales=controller.target_scales,
+                sent_policy_version=runtime.get('sent_policy_version'),applied_policy_version=applied,
+                last_error_code=monitor.last_error_code if monitor else None,message=message)
+
 class Authenticate(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
     type:Literal['authenticate']
@@ -132,15 +162,17 @@ async def live(ws:WebSocket):
         await emit(dict(type='status',state='connecting',message='正在连接豆包语音…'))
         # Retry previously sealed local queues with this owner's current JWT.
         await asyncio.to_thread(retry,uid,auth.token,base)
-        async with upstream.connection(cfg) as (remote,created):
+        async with upstream.connection(cfg,instructions=controller.instructions()) as (remote,created):
             await remote.send(json.dumps({'type':'input_audio_mute.commit'}))
             recorder=await asyncio.to_thread(Recorder,uid,auth.token,base,is_test=test_data(),device_id=auth.device_id)
             queue=asyncio.Queue(maxsize=16);pending_versions=[]
-            RUNTIMES[uid]=dict(session_id=recorder.external,queue=queue,controller=controller,transcripts=state)
+            RUNTIMES[uid]=dict(session_id=recorder.external,queue=queue,controller=controller,transcripts=state,
+                               sent_policy_version=None,applied_policy_version=None)
             async def update_policy():
                 payload=upstream.session_payload(cfg,instructions=controller.instructions())
                 payload['type']='session.update'
                 pending_versions.append(controller.version)
+                RUNTIMES[uid]['sent_policy_version']=controller.version
                 await remote.send(json.dumps(payload,ensure_ascii=False))
                 await emit(controller.view())
             async def receive_control():
@@ -149,6 +181,7 @@ async def live(ws:WebSocket):
                     controller.concern(signal.evidence_ids,signal.detector_version,signal.target_scales)
                     await update_policy()
             monitor=ScreeningMonitor(controller,update_policy,provider=policy.detector,emit=emit)
+            RUNTIMES[uid]['monitor']=monitor
             if controller.enabled:await update_policy()
             await emit(dict(type='session.ready',session_id=recorder.external,input_rate=16000,output_rate=24000,
                             is_test=test_data(),protocol='voice-bridge-v1'))
@@ -169,7 +202,9 @@ async def live(ws:WebSocket):
                 async for raw_event in remote:
                     event=upstream.decode_event(raw_event);kind=event['type']
                     if kind=='session.updated' and pending_versions:
-                        await emit(dict(type='screening.policy_applied',version=pending_versions.pop(0)))
+                        applied=pending_versions.pop(0)
+                        RUNTIMES[uid]['applied_policy_version']=applied
+                        await emit(dict(type='screening.policy_applied',version=applied))
                     if kind=='conversation.item.input_audio_transcription.started':
                         await interrupt('user_started_speaking')
                     entry,public=state.apply(event)
