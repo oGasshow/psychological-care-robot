@@ -1,5 +1,19 @@
 # 配置与接口
 
+[文档导航](../README.md) · [当前状态与已知问题](../status.md)
+
+## 专项配置与后续接口
+
+本页下表保留记录与分析的核心接口。后续语音、报告和采集配置按对应功能维护：
+
+| 范围 | 权威说明 |
+|---|---|
+| 豆包语音与终端 | [语音配置及协议](../features/voice.md) |
+| 逐句豆包语义分类 | [分类引擎及重试](../features/sentiment.md) |
+| 报告模型 | [报告配置](../features/reports.md) |
+| 持久采集任务 | [对话采集与任务接口](../features/screening.md) |
+| SEGA 特征与实验接口 | [SEGA 接入](../features/sega.md) |
+
 后端从 backend/.env 或进程环境读配置，进程环境优先。样例 `backend/.env.demo.example` / `.env.production.example` 的密钥留空，必须生成足够长的随机 SECRET_KEY；不把样例改成实际凭证再提交。生产默认 APP_ENV=production、engine=rules、assessment_provider=disabled、simulator=false。fixture 或 simulator 在 production 启动即拒绝。
 
 | 配置 | 默认和边界 |
@@ -8,12 +22,12 @@
 | SECRET_KEY | 必须至少 32 字符，持久随机密钥，JWT/游标/删除引用使用 |
 | SQLITE_BUSY_MS | 1000，SQLite 锁等待 |
 | ROBOT_UPLOAD_POLICY | streaming；本轮演示显式 after_close，属客户端进程配置 |
-| ROBOT_CARE_ANALYSIS_ENGINE | rules / ollama；API 和 worker 必须一致 |
+| ROBOT_CARE_ANALYSIS_ENGINE | rules / ollama / doubao_realtime；API 和 worker 必须一致 |
 | ROBOT_CARE_ASSESSMENT_PROVIDER | disabled / fixture / live |
 | ROBOT_CARE_DEMO_DATABASE | fixture 必须为 true，仅专用演示库 |
 | ROBOT_CARE_FIXTURE_FILE | fixture 必需，独立 UTF-8 JSON，不写原量表表 |
 | ROBOT_CARE_SIMULATOR_ENABLED | false，只接受 true/false |
-| ROBOT_CARE_LEASE_SECONDS | 30，1—600；模型模式应长于超时加提交余量 |
+| ROBOT_CARE_LEASE_SECONDS | rules/Ollama 默认30，豆包语义分类默认90，范围1—600；模型模式应长于超时加提交余量 |
 | ROBOT_CARE_MAX_ATTEMPTS | 3，1—10 |
 | ROBOT_CARE_RETRY_SECONDS | 2，0—300，按尝试指数退避 |
 | ROBOT_CARE_POLICY_SECONDS | 3600，1—86400；旧输入或配置也会使策略失效 |

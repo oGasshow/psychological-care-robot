@@ -1,5 +1,9 @@
 # SEGA 实模型实验接入
 
+[文档导航](../README.md) · [当前状态与已知问题](../status.md)
+
+文中的命令与代码路径从仓库根目录理解，另有工作目录说明时按该节执行。
+
 2026-11-12 已实际运行作者中文 EATD SEGA 权重，并接入平台实验分析 API。它与豆包的上下文判断、逐句情绪分类、自然回答抽取是不同的执行器，不能把后者的提示词称为 SEGA。
 
 来源：[论文](https://aclanthology.org/2024.naacl-long.452/)、[作者仓库](https://github.com/zhchen18/SEGA)，本机核验提交 `0514201653d71728015cf4aea2816c9151b94f71`。实际使用 `EATD/3-model/models/graph_fusion.py` 与 `sega_best.pt`，权重 SHA-256：`f9b427f3928a56fde91e25265eea5aac8677e5fd4c369f2cb2ebac438cfbc8bd`。第三方代码、权重与数据保持在忽略的 runtime/sega_reference，不再分发进本仓库。

@@ -1,3 +1,5 @@
+> 上游介绍归档：正文保留上游口径，文件和图片链接已改为原提交地址。本仓库实际能力请看[项目首页](../../README.md)与[当前状态](../status.md)，来源清单见[baseline.json](baseline.json)。
+
 <div align="center">
 
 <h1>💕 心翼 (XinYi) - AI 心理健康助手平台</h1>
@@ -8,7 +10,7 @@
 
 [![心翼 Logo](https://img.shields.io/badge/心翼-AI心理健康平台-blue?style=for-the-badge)](https://github.com/Ethanwhh/xinyi)
 
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/Ethanwhh/xinyi/blob/01add7abd7c1d4da72adf7463006a3baec5e6aed/LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.0-black)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.121+-009688)](https://fastapi.tiangolo.com/)
@@ -20,7 +22,7 @@
 
 </div>
 
-![logo](/frontend/public/logo.png)
+![logo](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/logo.png)
 
 ## 📖 项目简介
 
@@ -324,41 +326,41 @@ npm start       # 启动生产服务器
 
 ### 心翼介绍 
 > 项目简介 + 核心功能 + 设计理念
-![项目简介](/frontend/public/introduction1.png)
-![核心功能](/frontend/public/introduction2.png)
-![设计理念](/frontend/public/introduction3.png)
+![项目简介](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/introduction1.png)
+![核心功能](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/introduction2.png)
+![设计理念](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/introduction3.png)
 
 ### 用户登录
 > 新用户进行注册 + 老用户进行登录
-![用户登录](/frontend/public/login.png)
+![用户登录](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/login.png)
 
 ### 首页 
 > 统一的功能入口，6 大模块卡片式导航
-![首页](/frontend/public/dashboard.png)
+![首页](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/dashboard.png)
 
 ### 智能对话
 > 多轮对话 + 情绪感知 + 专业支持
-![智能对话](/frontend/public/chat.png)
+![智能对话](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/chat.png)
 
 ### 心理评估
 > 标准量表 + 智能解读 + 趋势追踪
-![心理评估](/frontend/public/assessment.png)
+![心理评估](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/assessment.png)
 
 ### 训练指导
 > 6 大训练类型 + 详细步骤 + 训练记录
-![训练指导](/frontend/public/training.png)
+![训练指导](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/training.png)
 
 ### 情绪日记
 > 智能模板引导 + AI 情绪分析 + 历史记录管理
-![情绪日记](/frontend/public/diary.png)
+![情绪日记](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/diary.png)
 
 ### 心翼之墙
 > 可视化日历 + 游戏化机制 + 成就徽章
-![心翼之墙](/frontend/public/growth.png)
+![心翼之墙](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/growth.png)
 
 ### 数据分析
 > 统计看板 + 情绪分布 + 双向趋势图
-![数据分析](/frontend/public/analytics.png)
+![数据分析](https://raw.githubusercontent.com/Ethanwhh/xinyi/01add7abd7c1d4da72adf7463006a3baec5e6aed/frontend/public/analytics.png)
 
 ## 📖 技术文档
 
@@ -746,7 +748,7 @@ npm start       # 启动生产服务器
 
 ## 📜 开源协议
 
-本项目采用 [MIT License](LICENSE) 开源协议。
+本项目采用 [MIT License](https://github.com/Ethanwhh/xinyi/blob/01add7abd7c1d4da72adf7463006a3baec5e6aed/LICENSE) 开源协议。
 
 您可以自由地：
 - ✅ 商业使用

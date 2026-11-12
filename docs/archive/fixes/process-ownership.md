@@ -1,5 +1,7 @@
 # D04：演示进程停止归属修复
 
+> 历史归档：日期、基线与结论保留当时口径，文档位置和链接已更新。当前操作与待修问题请看[文档导航](../../README.md)和[当前状态](../../status.md)。
+
 本次修改`backend/tools/demo_care.py`，新增`backend/tests/test_d04_lifecycle.py`；原106项测试及原2.4的58项断言未改。
 
 prepare为独立runtime生成随机runtime_id。start按每个服务另生成process_id，在进程环境传入runtime_id、绝对runtime目录和process_id；台账保存完整argv、工作目录、runtime归属及从操作系统实际读取的创建身份。任何启动身份无法核验时不会补写“已验证”身份。

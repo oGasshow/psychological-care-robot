@@ -1,10 +1,14 @@
 # 近期陪伴报告
 
-2026-11-10：将 `/robot-care/report` 改为“近期陪伴回顾”。复用 [shadcn/ui dashboard-01](https://ui.shadcn.com/blocks/dashboard) 的概况分层和实际 Card 组件，保留 [MIT 许可](frontend/src/components/report-ui/LICENSE.shadcn.md)。未安装新的 npm/Python 依赖。
+[文档导航](../README.md) · [当前状态与已知问题](../status.md)
+
+文中的命令与代码路径从仓库根目录理解，另有工作目录说明时按该节执行。
+
+2026-11-10：将 `/robot-care/report` 改为“近期陪伴回顾”。复用 [shadcn/ui dashboard-01](https://ui.shadcn.com/blocks/dashboard) 的概况分层和实际 Card 组件，保留 [MIT 许可](../../frontend/src/components/report-ui/LICENSE.shadcn.md)。未安装新的 npm/Python 依赖。
 
 页面先显示文字回顾，再显示记录覆盖、按日表达、同口径前后周期、话题原话、交流建议及可展开的来源。默认近 7 天含今天，方便查看最新记录；“近 7 个完整日”用于周期比较。量表不再出现在新报告主线，历史数据和旧接口保留。
 
-最新增量：只有后台触发相关对话采集并形成已确认条目时，报告才显示独立的辅助结果。普通用户、未触发会话和旧全空结果都不出现量表卡片，不要求补做问卷。详见 [按需采集](README_GUIDED_SCREENING.md)。
+最新增量：只有后台触发相关对话采集并形成已确认条目时，报告才显示独立的辅助结果。普通用户、未触发会话和旧全空结果都不出现量表卡片，不要求补做问卷。详见 [按需采集](screening.md)。
 
 统计由后端计算，文字通过独立生成链路组织。没有模型时，规则摘要仍可直接使用，并清楚标记；模型未配置、调用失败、输出不合法和混合来源都有可用的回退。明确危险表达始终由原来的独立规则提示，不能被模型输出覆盖。
 
@@ -14,7 +18,7 @@
 
 ## 模型配置
 
-参考 [backend/.env.report.example](backend/.env.report.example)，将所需字段写入本机 `backend/.env` 或启动 API 的进程环境。该示例文件不会自动加载。密钥只存本机，不写进代码、截图、Git 或交接附件。
+参考 [backend/.env.report.example](../../backend/.env.report.example)，将所需字段写入本机 `backend/.env` 或启动 API 的进程环境。该示例文件不会自动加载。密钥只存本机，不写进代码、截图、Git 或交接附件。
 
 | provider | base URL | 模型字段与行为 |
 |---|---|---|

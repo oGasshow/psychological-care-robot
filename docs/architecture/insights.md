@@ -1,8 +1,12 @@
 # 2.3 / 2.6 与 2.4 增补
 
-2026-11-04新依赖与干净安装入口见 `README_RELEASEPREP.md` / `Setup-Project.ps1`；下述环境复用说明属于前一轮历史。
+[文档导航](../README.md) · [当前状态与已知问题](../status.md)
 
-2026-10-29 D01—D04修复：配置A→B→A恢复当前结果；测试/非测试来源分流与准确打印；fixture文档错误受控降级；演示停止验证实例归属。详见 `docs/D01-D04修复说明.md`。新增交付保留原独立验收结论，等待重新复核。
+本文保留早期模块设计和契约，旧环境路径及当时验收结论按快照理解。首次运行看[快速开始](../getting-started.md)，当前语音、模型和采集范围以[当前状态](../status.md)及功能文档为准。
+
+2026-11-04新依赖与干净安装入口见 `docs/operations/installation.md` / `Setup-Project.ps1`；下述环境复用说明属于前一轮历史。
+
+2026-10-29 D01—D04修复：配置A→B→A恢复当前结果；测试/非测试来源分流与准确打印；fixture文档错误受控降级；演示停止验证实例归属。详见 `docs/archive/fixes/d01-d04.md`。新增交付保留原独立验收结论，等待重新复核。
 
 在已验收 `aac2115b4c4b8835f3241d0ea1994f5cbec48981` 上增量实现，同一个 FastAPI/Next 项目。新增功能只在虚构本地数据下验证；开发自测不代替独立验收。入口 `/login` → `/robot-care`，历史、会话与转录更正、只读量表、趋势、报告/打印均在此入口。项目性质为辅助陪伴设备，非专业心理咨询师或医疗服务设备。
 
@@ -39,7 +43,7 @@ $env:MODULE24_EVIDENCE="$PWD/../runtime/pytest_evidence"
 & $py236 -m pytest tests -q --junitxml="$PWD/../runtime/pytest.xml"
 ```
 
-证据默认不含真实数据/凭证。专项有正常、故障前、恢复后独立统计，真实本地 HTTP、503、响应已保存但 ACK 前终止、身份暂停和新 PID 恢复。详见 `backend/examples/twenty_usage.md`。浏览器命令及实际 PDF 生成方法在 `frontend/README_ROBOT_CARE.md`；需要专用虚构登录，脚本会增加隔离 UI 分页测试会话并提交/恢复更正版本。
+证据默认不含真实数据/凭证。专项有正常、故障前、恢复后独立统计，真实本地 HTTP、503、响应已保存但 ACK 前终止、身份暂停和新 PID 恢复。详见 `backend/examples/twenty_usage.md`。浏览器命令及实际 PDF 生成方法在 `docs/development/frontend.md`；需要专用虚构登录，脚本会增加隔离 UI 分页测试会话并提交/恢复更正版本。
 
 ## 运行机制和对接
 
@@ -55,4 +59,4 @@ $env:MODULE24_EVIDENCE="$PWD/../runtime/pytest_evidence"
 
 ## 生产和边界
 
-公司合并/数据库升级/备份恢复/服务模板详见 `docs/部署与迁移.md`；配置清单见 `docs/配置与协议.md`。Linux/systemd/Nginx 是待实机核对模板，未部署公司或树莓派。真实模型、内容审核、真实语音、有效量表、Pi、公司环境、实际动作均需 X01—X07 后续独立验证。原前端基线缺 13 个静态媒体文件，新增入口不依赖这些文件，原首页媒体未补齐；前端依赖 audit 记录和上线前修复边界见交付交接说明。
+公司合并/数据库升级/备份恢复/服务模板详见 `docs/operations/deployment.md`；配置清单见 `docs/reference/configuration.md`。Linux/systemd/Nginx 是待实机核对模板，未部署公司或树莓派。真实模型、内容审核、真实语音、有效量表、Pi、公司环境、实际动作均需 X01—X07 后续独立验证。原前端基线缺 13 个静态媒体文件，新增入口不依赖这些文件，原首页媒体未补齐；前端依赖 audit 记录和上线前修复边界见交付交接说明。

@@ -1,0 +1,21 @@
+{
+  "README_RELEASEPREP.md": "docs/operations/installation.md",
+  "README_MODULE24.md": "docs/architecture/recording.md",
+  "README_MODULE236.md": "docs/architecture/insights.md",
+  "README_VOICE.md": "docs/features/voice.md",
+  "README_SENTIMENT.md": "docs/features/sentiment.md",
+  "README_REPORTS.md": "docs/features/reports.md",
+  "README_GUIDED_SCREENING.md": "docs/features/screening.md",
+  "README_SEGA.md": "docs/features/sega.md",
+  "功能与整项目部署简述.md": "docs/archive/2026-11-04-overview.md",
+  "docs/部署与迁移.md": "docs/operations/deployment.md",
+  "docs/配置与协议.md": "docs/reference/configuration.md",
+  "docs/D01-D04修复说明.md": "docs/archive/fixes/d01-d04.md",
+  "docs/D04_进程停止归属说明.md": "docs/archive/fixes/process-ownership.md",
+  "docs/项目开发交接_20261110.md": "docs/archive/handoffs/2026-11-10.md",
+  "docs/项目开发交接_20261111.md": "docs/archive/handoffs/2026-11-11.md",
+  "docs/项目开发交接_20261112.md": "docs/archive/handoffs/2026-11-12.md",
+  "docs/upstream/README_XINYI.md": "docs/upstream/xinyi-original.md",
+  "frontend/README_ROBOT_CARE.md": "docs/development/frontend.md",
+  "baseline.json": "docs/upstream/baseline.json"
+}
