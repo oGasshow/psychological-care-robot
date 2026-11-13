@@ -171,7 +171,7 @@ def test_real_bridge_auto_detection_without_optin_or_spoken_consent(actors,monke
             while not any(e['type']=='screening.detector_checked' for e in events):events.append(ws.receive_json())
             runtime=api.RUNTIMES[a.uid]
             assert runtime['controller'].stage==('collecting' if positive else 'companionship')
-            assert runtime['controller'].target_scales==(['PHQ-9'] if positive else [])
+            assert runtime['controller'].target_scales==(['PHQ-9','mood_interest'] if positive else [])
             updates=[e for e in received if e['type']=='session.update']
             assert any('无需再次征求量表同意' in e['session']['instructions'] for e in updates)
             if positive:assert any('后台已根据对话线索' in e['session']['instructions'] for e in updates)

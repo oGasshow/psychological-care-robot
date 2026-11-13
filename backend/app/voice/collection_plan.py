@@ -6,7 +6,7 @@ from sqlalchemy import Column,Integer,String,JSON,ForeignKey
 from ..database import Base,SessionLocal
 from ..robot_records import now,RecordSession,RecordMessage
 from ..care.models import InputRevision
-from .screening import ITEMS
+from .screening import ITEMS,SCALE_LABELS
 
 class CollectionPlan(Base):
     __tablename__='robot_voice_collection_plans'
@@ -16,6 +16,12 @@ class CollectionPlan(Base):
     updated_at=Column(String(32),nullable=False)
 
 def key(uid,is_test):return f'{uid}:{int(is_test)}'
+
+def has_saved_answers(uid,is_test):
+    """Check before source validation, so queued sources can be recovered first."""
+    with SessionLocal() as db:
+        row=db.get(CollectionPlan,key(uid,is_test))
+        return bool(row and row.payload.get('answers'))
 
 def read_plan(uid,is_test):
     with SessionLocal() as db:
@@ -78,7 +84,9 @@ def public_plan(uid,is_test):
     if not data:return dict(needs_collection=False,status='no_task',scales=[])
     return dict(needs_collection=data['needs_collection'],status=data['status'],episode_id=data['episode_id'],
         window_end=data['window_end'],formal_assessment=False,
-        scales=[dict(scale=s,answered=sum(f'{s}:{i+1}' in data['answers'] for i in range(len(ITEMS[s]))),required=len(ITEMS[s])) for s in data['target_scales']])
+        scales=[dict(scale=s,**({'display_name':SCALE_LABELS[s]} if s not in ('PHQ-9','GAD-7') else {}),
+            answered=sum(f'{s}:{i+1}' in data['answers'] for i in range(len(ITEMS[s]))),required=len(ITEMS[s]))
+            for s in data['target_scales']])
 
 def backfill_recent_plans():
     """Bootstrap existing owned voice history without inventing scale answers."""

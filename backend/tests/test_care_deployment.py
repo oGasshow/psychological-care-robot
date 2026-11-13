@@ -45,7 +45,7 @@ def test_N44_real_prepare_start_stop_and_restart_preserves_data(tmp_path,trace):
     def start():
         result=run([*args,'start','--runtime',str(runtime),'--no-frontend'],env)
         assert result.returncode==0,result.stderr
-        cfg=json.loads((runtime/'access.json').read_text())
+        cfg=json.loads((runtime/'access.json').read_text(encoding='utf-8'))
         with httpx.Client(base_url=f'http://127.0.0.1:{cfg["backend_port"]}',trust_env=False,timeout=5) as client:
             ids=[]
             for user in cfg['users']:
@@ -62,12 +62,12 @@ def test_N44_real_prepare_start_stop_and_restart_preserves_data(tmp_path,trace):
             assert summary['analysis_counts']['succeeded']==6
             assert summary['analysis_counts']['unable_to_determine']==2
         assert cfg['users'][0]['password'] not in result.stdout
-        return ids,len(count),json.loads((runtime/'pids.json').read_text())
+        return ids,len(count),json.loads((runtime/'pids.json').read_text(encoding='utf-8'))
     def stop():
         result=run([*args,'stop','--runtime',str(runtime)],env)
         assert result.returncode==0,result.stderr
         assert not (runtime/'pids.json').exists()
-        cfg=json.loads((runtime/'access.json').read_text())
+        cfg=json.loads((runtime/'access.json').read_text(encoding='utf-8'))
         with pytest.raises((httpx.ConnectError,httpx.ConnectTimeout)):
             httpx.get(f'http://127.0.0.1:{cfg["backend_port"]}/health',trust_env=False,timeout=1)
     try:
