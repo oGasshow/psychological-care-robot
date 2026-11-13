@@ -37,8 +37,8 @@ export default function DashboardPage() {
 
       const data = await response.json();
       setUserInfo(data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '认证失败');
       localStorage.removeItem('access_token');
       localStorage.removeItem('username');
       router.push('/login');

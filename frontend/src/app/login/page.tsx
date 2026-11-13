@@ -64,8 +64,8 @@ export default function LoginPage() {
         setIsLogin(true);
         setFormData({ username: formData.username, password: '', confirmPassword: '' });
       }
-    } catch (err: any) {
-      setError(err.message || '操作失败，请重试');
+    } catch (err: unknown) {
+      setError(err instanceof Error && err.message ? err.message : '操作失败，请重试');
     } finally {
       setLoading(false);
     }

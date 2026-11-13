@@ -1,14 +1,15 @@
 'use client';
+import type {Page,SessionRecord} from '@/lib/care-types';
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import CareShell, { ErrorBox } from '@/components/care-shell';
-import { api, Data, date, label, list } from '@/lib/care-api';
+import { api, date, label, list } from '@/lib/care-api';
 
 const scenarioNames:Record<string,string>={presentation_1:'日常积极对话',presentation_2:'孤独与担忧对话',presentation_3:'明确危险表达示例'};
 
 export default function HistoryPage() {
-  const [items, setItems] = useState<Data[]>([]);
+  const [items, setItems] = useState<SessionRecord[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -16,7 +17,7 @@ export default function HistoryPage() {
   async function load(next?: string) {
     setBusy(true); setError(null);
     try {
-      const [page,profile] = await Promise.all([api(`robot-records/sessions?limit=50${next ? `&cursor=${encodeURIComponent(next)}` : ''}`),api('robot-insights/profile')]);
+      const [page,profile] = await Promise.all([api<Page<SessionRecord>>(`robot-records/sessions?limit=50${next ? `&cursor=${encodeURIComponent(next)}` : ''}`),api('robot-insights/profile')]);
       setDemoEntry(profile.demo_entry_enabled===true);
       setItems(old => next ? [...old, ...list(page.items)] : list(page.items)); setCursor(page.next_cursor);
     } catch(e) { setError(e); } finally { setBusy(false); }

@@ -17,7 +17,7 @@ export default function CareShell({ title, subtitle, children }: { title: string
   const router = useRouter();
   useEffect(() => {
     let active = true;
-    Promise.all([api('auth/me'), insights('profile')]).then(([, profile]) => {
+    Promise.all([api('auth/me'), insights<{anonymous_id?:string;anonymous_code?:string}>('profile')]).then(([, profile]) => {
       if (active) setAnonymousId(profile.anonymous_id || profile.anonymous_code || '未提供');
     }).catch(e => { if (active) { setError(e); setAnonymousId('未登录'); } });
     return () => { active = false; };

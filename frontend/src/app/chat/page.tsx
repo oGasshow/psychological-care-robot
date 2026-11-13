@@ -86,7 +86,7 @@ export default function ChatPage() {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let aiResponse = '';
-      let currentMsgId = Date.now() + 1;
+      const currentMsgId = Date.now() + 1;
 
       if (reader) {
         while (true) {
@@ -150,8 +150,8 @@ export default function ChatPage() {
           }
         }
       }
-    } catch (error: any) {
-      alert('发送失败：' + error.message);
+    } catch (error: unknown) {
+      alert('发送失败：' + (error instanceof Error ? error.message : '网络错误，请重试'));
       setMessages(prev => prev.slice(0, -1));
     } finally {
       setLoading(false);

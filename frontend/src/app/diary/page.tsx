@@ -123,7 +123,7 @@ export default function DiaryPage() {
         {/* 提示文字 */}
         <div className="text-center mb-8">
           <p className="text-gray-600">记录每一天的心情，留下成长的足迹</p>
-          <p className="text-sm text-gray-500 mt-1">💡 想查看数据分析？前往"数据分析"模块</p>
+          <p className="text-sm text-gray-500 mt-1">💡 想查看数据分析？前往&quot;数据分析&quot;模块</p>
         </div>
 
         {/* 日记列表 */}

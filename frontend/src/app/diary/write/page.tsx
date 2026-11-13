@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { assistantDisplayText } from '@/lib/display-text';
+import type { DiaryFeedback } from '@/lib/diary-types';
 
 interface Emotion {
   emotion: string;
@@ -50,7 +51,7 @@ export default function DiaryWritePage() {
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showAIFeedback, setShowAIFeedback] = useState(false);
-  const [aiFeedback, setAiFeedback] = useState<any>(null);
+  const [aiFeedback, setAiFeedback] = useState<DiaryFeedback | null>(null);
   const [diaryDate, setDiaryDate] = useState(new Date().toISOString().split('T')[0]);
 
   const fetchTemplates = async () => {
@@ -243,7 +244,7 @@ export default function DiaryWritePage() {
               <div className="mb-6 p-6 bg-purple-50 rounded-xl">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">💡 推荐内容</h3>
                 <div className="space-y-3">
-                  {aiFeedback.recommendations.map((rec: any, index: number) => (
+                  {aiFeedback.recommendations.map((rec, index: number) => (
                     <div key={index} className="bg-white p-4 rounded-lg">
                       <div className="font-semibold text-gray-800">{assistantDisplayText(rec.title)}</div>
                       <div className="text-sm text-gray-600 mt-1">{assistantDisplayText(rec.reason)}</div>

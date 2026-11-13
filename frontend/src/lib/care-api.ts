@@ -1,4 +1,4 @@
-export type Data = Record<string, any>;
+export type Data = Record<string, unknown>;
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string) {
@@ -6,23 +6,28 @@ export class ApiError extends Error {
   }
 }
 
-export async function api(path: string, init: RequestInit = {}): Promise<Data> {
+export async function api<T = Data>(path: string, init: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('access_token');
   if (!token) throw new ApiError(401, 'authentication_required');
   const response = await fetch(`/api/${path}`, {
     ...init, cache: 'no-store',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...init.headers },
   });
-  const data = await response.json().catch(() => ({}));
+  const data: unknown = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401) localStorage.removeItem('access_token');
-    throw new ApiError(response.status, data?.error?.code || 'request_failed');
+    const error = isRecord(data) && isRecord(data.error) ? data.error : undefined;
+    throw new ApiError(response.status, typeof error?.code === 'string' ? error.code : 'request_failed');
   }
-  return data;
+  // The caller selects the server DTO; untyped callers receive unknown fields.
+  return data as T;
 }
 
-export const insights = (path: string, init?: RequestInit) => api(`robot-insights/${path}`, init);
-export const list = (value: unknown): Data[] => Array.isArray(value) ? value : [];
+const isRecord = (value: unknown): value is Data => typeof value === 'object' && value !== null && !Array.isArray(value);
+export const insights = <T = Data>(path: string, init?: RequestInit) => api<T>(`robot-insights/${path}`, init);
+export function list<T>(value: readonly T[] | null | undefined): T[];
+export function list<T = Data>(value: unknown): T[];
+export function list(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
 export const date = (value: unknown): string => {
   if (typeof value !== 'string' || !value) return '未提供';
   const d = new Date(value);

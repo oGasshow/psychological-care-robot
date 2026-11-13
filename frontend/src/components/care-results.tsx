@@ -1,11 +1,12 @@
 'use client';
+import type {Assessment,TrendGroup,TrendPoint,TrendsData} from '@/lib/care-types';
 
-import { Data, date, label, list } from '@/lib/care-api';
+import { date, label, list } from '@/lib/care-api';
 import { assistantDisplayText } from '@/lib/display-text';
 
 export type DataNature = 'test_only' | 'non_test_only' | 'mixed' | 'empty' | 'unconfirmed';
-export function reportDataNature(data: Data): DataNature {
-  return ['test_only', 'non_test_only', 'mixed', 'empty'].includes(data.data_nature)
+export function reportDataNature(data: {data_nature?: string}): DataNature {
+  return ['test_only', 'non_test_only', 'mixed', 'empty'].includes(data.data_nature || '')
     ? data.data_nature as DataNature : 'unconfirmed';
 }
 export function dataNatureText(nature: DataNature): string {
@@ -30,7 +31,7 @@ export function DataNatureBadge({ isTest }: { isTest: unknown }) {
   return <span className={`care-badge ${isTest === true ? 'test' : isTest === false ? 'non-test' : ''}`} data-source-is-test={isTest === true ? 'true' : isTest === false ? 'false' : 'unknown'}>{isTest === true ? '模拟数据演示' : isTest === false ? '非测试标志（非真实性验证）' : '测试属性未确认'}</span>;
 }
 
-export function Assessments({ items, empty = '暂无量表记录；未补为 0 分。' }: { items: Data[]; empty?: string }) {
+export function Assessments({ items, empty = '暂无量表记录；未补为 0 分。' }: { items: Assessment[]; empty?: string }) {
   return <>{!items.length && <p className="care-empty">{empty}</p>}{items.map((a, i) => <article className="care-card" key={a.source_record_id || i}>
     <h3>{a.display_name || a.scale_name}</h3><DataNatureBadge isTest={a.is_test}/><span className="care-badge">{label(a.verification_status)}</span><span className="care-badge">{label(a.applicability_status)}</span>
     <p><strong>{a.total_score === null || a.total_score === undefined ? '分数未确认' : `${a.total_score} 分`}</strong> · 范围 {a.score_min ?? '未确认'}—{a.score_max ?? '未确认'}</p>
@@ -43,9 +44,9 @@ export function Assessments({ items, empty = '暂无量表记录；未补为 0 �
 
 // The API separates data nature. Repeat the split in the view so even a malformed
 // group cannot use one test point plus one non-test point to meet the threshold.
-function separateNature(groups: Data[]): Data[] {
+function separateNature(groups: TrendGroup[]): TrendGroup[] {
   return groups.flatMap(group => {
-    const partitions = new Map<unknown, Data[]>();
+    const partitions = new Map<boolean | undefined, TrendPoint[]>();
     for (const point of list(group.points)) {
       const nature = typeof point.is_test === 'boolean' ? point.is_test : undefined;
       const points = partitions.get(nature) || [];
@@ -57,8 +58,8 @@ function separateNature(groups: Data[]): Data[] {
   });
 }
 
-function independentPoints(group: Data, assessment = false): Data[] {
-  const points = new Map<string | number, Data>();
+function independentPoints(group: TrendGroup, assessment = false): TrendPoint[] {
+  const points = new Map<string | number, TrendPoint>();
   for (const point of list(group.points)) {
     const id = assessment ? point.source_record_id : point.record_id || point.target_record_id;
     if ((typeof id === 'string' && id) || typeof id === 'number') points.set(id, point);
@@ -66,7 +67,7 @@ function independentPoints(group: Data, assessment = false): Data[] {
   return [...points.values()];
 }
 
-export function Trends({ data }: { data: Data }) {
+export function Trends({ data }: { data: TrendsData }) {
   const emotions = separateNature(list(data.emotion_groups)), assessments = separateNature(list(data.assessment_groups));
   return <>
     <section className="care-card"><h2>情绪类别时间线</h2><p className="care-meta">只取当前输入版本、成功分类的独立用户记录。按引擎、配置及测试属性分流；每个分流至少 2 条独立记录，不将测试与非测试各 1 条拼成趋势。不换算临床总分，不自动判断改善或恶化。</p>

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { assistantDisplayText } from '@/lib/display-text';
+import type { DiaryFeedback, GuidedResponses } from '@/lib/diary-types';
 
 interface DiaryDetail {
   id: number;
@@ -18,11 +19,11 @@ interface DiaryDetail {
     social: number;
     productivity: number;
   } | null;
-  guided_responses: any;
+  guided_responses: GuidedResponses | null;
   template_used: string | null;
   word_count: number;
   writing_duration: number;
-  ai_feedback: any;
+  ai_feedback: DiaryFeedback | null;
   created_at: string;
   updated_at: string;
 }
@@ -315,7 +316,7 @@ export default function DiaryDetailPage() {
               <div className="p-6 bg-purple-50 rounded-xl">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">💡 推荐内容</h3>
                 <div className="space-y-3">
-                  {diary.ai_feedback.recommendations.map((rec: any, index: number) => (
+                  {diary.ai_feedback.recommendations.map((rec, index: number) => (
                     <div key={index} className="bg-white p-4 rounded-lg">
                       <div className="font-semibold text-gray-800">{assistantDisplayText(rec.title)}</div>
                       <div className="text-sm text-gray-600 mt-1">{assistantDisplayText(rec.reason)}</div>

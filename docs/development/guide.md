@@ -28,12 +28,27 @@
 # 后端工程回归；默认使用隔离测试库，不调用真实云模型
 ./.venv/Scripts/python.exe -X utf8 -m pytest backend/tests -q
 
-# 前端类型与构建，随后核对相对既有基线的 lint 新增诊断
+# 前端完整 lint、类型与构建，随后核对剩余警告是否有新增
+npm --prefix frontend run lint
 npm --prefix frontend run build
 npm --prefix frontend run lint:changes
 ```
 
-前端构建需配合当前运行环境的 BACKEND_URL，改变该值后要重新构建。全仓 lint 仍有旧基线问题，不能把 lint:changes 通过写成全仓零问题。
+前端构建需配合当前运行环境的 BACKEND_URL，改变该值后要重新构建。2026-11-14 已修复全部 12 项既有 ESLint 错误，当前完整检查为 0 错误、19 条既有警告；不能称为零警告。lint:changes 的基线只保留尚存警告，已修复诊断不再获准重新出现。
+
+### 2026-11-14 静态检查修复明细
+
+| 位置 | 原问题 | 数量 |
+|---|---|---|
+| 聊天页 | 未重赋值的变量使用 let；异常参数使用 any | 2 |
+| 首页 | 异常参数使用 any | 1 |
+| 日记详情 | 引导回答、反馈字段及推荐项使用 any | 3 |
+| 日记编写 | 反馈状态及推荐项使用 any | 2 |
+| 日记列表 | JSX 中两处双引号未转义 | 2 |
+| 登录页 | 异常参数使用 any | 1 |
+| 陪伴工作台公共接口 | 返回字典使用 Record<string, any> | 1 |
+
+日记结构由 [diary-types.ts](../../frontend/src/lib/diary-types.ts) 共享；工作台响应与语音事件由 [care-types.ts](../../frontend/src/lib/care-types.ts) 声明。公共接口对未指定结构的字段使用 unknown，由调用处选择具体响应类型；这属于编译期契约，不代替运行时数据校验。没有关闭 ESLint 规则或通过新增忽略项绕过错误。
 
 真实云调用、浏览器和生命周期验证分别见[语音](../features/voice.md)、[自然采集](../features/screening.md)、[SEGA](../features/sega.md)、[前端验证](frontend.md)及[完整复核入口](../operations/installation.md)。这些检查可能调用云服务或向专用演示库写入虚构记录，按对应说明使用隔离环境。
 
