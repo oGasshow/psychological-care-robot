@@ -4,6 +4,8 @@ import base64
 from contextlib import contextmanager
 import json
 import threading
+from types import SimpleNamespace
+from conftest import RUN_ROOT
 
 import pytest
 from websockets.sync.server import serve
@@ -54,7 +56,7 @@ def test_empty_provider_started_id_adopts_real_asr_id_without_extra_turn():
 
 
 @contextmanager
-def cloud(user_texts=None):
+def cloud(user_texts=None, *, audio_only=False):
     received=[]
     def handler(ws):
         input_count=0
@@ -75,6 +77,8 @@ def cloud(user_texts=None):
                             dict(type='response.output_text.done',question_id=q,response_id=r,text='我在听，可以慢慢说。'),
                             dict(type='response.output_audio.delta',question_id=q,response_id=r,delta=base64.b64encode(b'\0'*640).decode()),
                             dict(type='response.output_audio.done',question_id=q,response_id=r)]
+                    if audio_only:
+                        events=[item for item in events if item['type']!='response.output_text.done']
                     for event in events:ws.send(json.dumps(event))
                 elif kind=='session.close':ws.send(json.dumps(dict(type='session.closed')));break
         except Exception:
@@ -91,9 +95,11 @@ class FakeRecorder:
     def __init__(self,uid,token,base,*,is_test,device_id):
         self.uid,self.is_test,self.device_id=uid,is_test,device_id
         self.external='virtual_voice';self.entries=[];self.instances.append(self)
+        self.box=SimpleNamespace(path=RUN_ROOT/f'fictional_voice_{uid}.sqlite')
     def enqueue(self,entry):
         self.entries.append(entry.wire());entry.recorded=True
     def finish(self):return dict(type='records.saved',recording_session_id=123,pending=0)
+    def sync_partial(self,seconds=3.5):return dict(type='records.saved',recording_session_id=123,pending=0)
 
 
 def setup_bridge(monkeypatch,url):
@@ -110,6 +116,55 @@ def setup_bridge(monkeypatch,url):
 def authenticate(ws,actor):
     ws.send_json(dict(type='authenticate',token=actor.token,device_id='pi_adapter_test'))
     while ws.receive_json()['type']!='session.ready':pass
+
+
+def test_goodbye_waits_for_client_playback_finish_even_without_output_text(actors,monkeypatch):
+    from app.voice.screening import Screening
+    def completed(*args):
+        s=Screening(True,'fictional-notice');s.stage='complete';s.closing_question_asked=True
+        return s
+    a,_=actors
+    with cloud(['没有了。'],audio_only=True) as (url,received):
+        setup_bridge(monkeypatch,url)
+        monkeypatch.setattr(api,'Screening',completed)
+        monkeypatch.setattr(api,'store_plan',lambda *args:None)
+        with a.client.websocket_connect('/api/robot-voice/live') as ws:
+            authenticate(ws,a);ws.send_bytes(b'\0'*640)
+            while ws.receive_json()['type']!='dialogue.finished':pass
+            assert not any(e['type']=='session.close' for e in received)
+            assert a.request('GET','/api/robot-voice/diagnostics').json()['active']
+            ws.send_json(dict(type='finish'))
+            while ws.receive_json()['type']!='records.saved':pass
+    assert any(e['type']=='session.close' for e in received)
+
+
+@pytest.mark.parametrize('pending',[0,1])
+def test_saved_answers_recover_before_task_validation_and_survive_retry_failure(actors,monkeypatch,pending):
+    a,_=actors;calls=[]
+    def recover(*args):
+        calls.append('retry');return dict(items=[],pending=pending)
+    def load(*args):
+        calls.append('read_plan');assert calls[0]=='retry';return None
+    with cloud() as (url,_):
+        setup_bridge(monkeypatch,url)
+        monkeypatch.setenv('ROBOT_CARE_GUIDED_SCREENING_ENABLED','true')
+        monkeypatch.setenv('ROBOT_CARE_PURCHASE_NOTICE_VERSION','fictional-notice')
+        monkeypatch.setattr(api,'has_saved_answers',lambda *args:True)
+        monkeypatch.setattr(api,'retry',recover)
+        monkeypatch.setattr(api,'read_plan',load)
+        with a.client.websocket_connect('/api/robot-voice/live') as ws:
+            ws.send_json(dict(type='authenticate',token=a.token))
+            if pending:
+                while True:
+                    event=ws.receive_json()
+                    if event['type']=='error':break
+                assert event['code']=='record_recovery_pending'
+                assert calls==['retry'] and not FakeRecorder.instances
+            else:
+                while ws.receive_json()['type']!='session.ready':pass
+                assert calls[:2]==['retry','read_plan']
+                ws.send_json(dict(type='finish'))
+                while ws.receive_json()['type']!='records.saved':pass
 
 
 def test_local_cloud_round_trip_and_saved_final_texts(actors,monkeypatch):

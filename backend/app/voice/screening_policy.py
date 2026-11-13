@@ -3,6 +3,11 @@ from dataclasses import dataclass
 import os
 
 
+def collection_targets():
+    return ['PHQ-9', 'GAD-7', 'mood_interest', 'worry_anxiety', 'stress_load',
+            'sleep_wellbeing', 'coping_resources', 'social_comfort']
+
+
 @dataclass(frozen=True)
 class CollectionPolicy:
     enabled: bool

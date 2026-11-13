@@ -19,9 +19,9 @@ from .settings import settings
 from .recording import Recorder, directory as outbox_directory, internal_base, retry
 from .transcripts import Transcripts, Utterance, utc_now
 from .screening import Screening, ScreeningResult, save_result, has_collected_items
-from .screening_policy import CollectionPolicy, collection_policy
+from .screening_policy import CollectionPolicy, collection_policy, collection_targets
 from .screening_monitor import ScreeningMonitor
-from .collection_plan import read_plan,restore,store_plan,public_plan
+from .collection_plan import read_plan,restore,store_plan,public_plan,has_saved_answers
 from .continuity import recent_context
 from . import sega
 
@@ -142,8 +142,7 @@ class ConcernSignal(BaseModel):
     evidence_ids:Annotated[list[str],Field(min_length=1,max_length=20)]
     detector_version:Annotated[str,Field(min_length=1,max_length=100)]
     target_scales:Annotated[list[Literal['PHQ-9','GAD-7','mood_interest','worry_anxiety',
-        'stress_load','sleep_wellbeing','coping_resources','social_comfort']],Field(min_length=1,max_length=6)]=[
-            'mood_interest','worry_anxiety','stress_load','sleep_wellbeing','coping_resources','social_comfort']
+        'stress_load','sleep_wellbeing','coping_resources','social_comfort']],Field(min_length=1,max_length=8)]=Field(default_factory=collection_targets)
 
 @router.post('/screening-signal')
 async def screening_signal(body:ConcernSignal,uid=Depends(owner)):
@@ -244,6 +243,15 @@ async def live(ws:WebSocket):
         base=internal_base(ws.scope)
         await emit(dict(type='status',state='connecting',message='正在连接豆包语音…'))
         if controller.enabled:
+            # Confirmed answers may still refer to a previous call's outbox.
+            # Recover those sources before read_plan validates and store_plan
+            # persists the resumed task. Calls with no answers keep fast startup.
+            if await asyncio.to_thread(has_saved_answers,uid,test_data()):
+                recovery=await asyncio.to_thread(retry,uid,auth.token,base)
+                if recovery.get('pending'):
+                    await emit(dict(type='error',code='record_recovery_pending',
+                        message='上次对话的原话仍待保存，请先重试保存后再继续，已采集进度会保留。'))
+                    return
             plan=await asyncio.to_thread(read_plan,uid,test_data())
             context=await asyncio.to_thread(recent_context,uid,is_test=test_data(),
                 after=plan.get('completed_at') if plan and not plan['needs_collection'] else None)
@@ -322,7 +330,8 @@ async def live(ws:WebSocket):
                 if entries:
                     await remote.send(json.dumps({'type':'response.cancel'}))
             async def receive_remote():
-                closing_text=None
+                closing_response=None
+                closing_announced=False
                 async for raw_event in remote:
                     event=upstream.decode_event(raw_event);kind=event['type']
                     transport['remote_events']+=1;transport['last_remote_event']=kind
@@ -332,6 +341,9 @@ async def live(ws:WebSocket):
                         RUNTIMES[uid]['applied_policy_version']=applied
                         await emit(dict(type='screening.policy_applied',version=applied))
                     if kind=='conversation.item.input_audio_transcription.started':
+                        closing_response=None
+                        closing_announced=False
+                        controller.end_after_response=False
                         await interrupt('user_started_speaking')
                     entry,public=state.apply(event)
                     if public:
@@ -346,11 +358,9 @@ async def live(ws:WebSocket):
                                 snapshot_hash=monitor.snapshot()['source_snapshot_hash']
                                 task=asyncio.create_task(review_checkpoint(snapshot_hash,monitor.user_count))
                                 review_tasks.add(task);task.add_done_callback(review_tasks.discard)
-                            if entry.role=='user' and controller.end_after_response and closing_text is None:
-                                closing_text='好，那我们今天先聊到这里。谢谢你愿意和我分享，之后想继续聊时可以再回来。'
-                                await interrupt('conversation_finished')
-                                await remote.send(json.dumps({'type':'speech_text_buffer.commit','text':closing_text},ensure_ascii=False))
                         await emit(public)
+                    if kind.startswith('response.output_') and entry and not entry.interrupted and controller.end_after_response and not closing_announced:
+                        closing_response=closing_response or entry.message_id
                     if kind=='response.output_audio.delta' and entry and not entry.interrupted:
                         encoded=event.get('delta','')
                         pcm=base64.b64decode(encoded,validate=True)
@@ -358,10 +368,12 @@ async def live(ws:WebSocket):
                         await emit(dict(type='audio.delta',message_id=entry.message_id,audio=encoded,rate=24000))
                     elif kind=='response.output_audio.done' and entry and not entry.interrupted:
                         await emit(dict(type='audio.done',message_id=entry.message_id))
-                        if closing_text and '我们今天先聊到这里' in entry.text:
+                        if controller.end_after_response and closing_response==entry.message_id:
+                            closing_announced=True
                             await emit(dict(type='dialogue.finished'))
-                            await remote.send(json.dumps({'type':'session.close'}))
-                            break
+                            # Browser acknowledges finish after its queued audio
+                            # drains. Closing the socket here truncates playback.
+                            closing_response=None
                     elif kind=='response.canceled':
                         await emit(dict(type='status',state='interrupted',message='已打断旧回复，可以继续说。'))
                     elif kind=='session.closed':break

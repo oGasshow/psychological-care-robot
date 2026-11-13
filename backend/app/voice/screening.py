@@ -3,6 +3,7 @@ import re
 from sqlalchemy import Column, Integer, String, JSON, ForeignKey
 from ..database import Base
 from care_core import safety
+from .screening_policy import collection_targets
 
 ITEMS = {
     'PHQ-9': ['做事缺少兴趣或乐趣', '心情低落或没有盼头', '难以入睡、睡眠中断或睡得过多',
@@ -25,7 +26,7 @@ OPTIONS_BY_SCALE = {scale: OPTIONS for scale in ('PHQ-9','GAD-7')}
 OPTIONS_BY_SCALE.update({scale: CUSTOM_OPTIONS for scale in (
     'mood_interest','worry_anxiety','stress_load','sleep_wellbeing','coping_resources','social_comfort')})
 SCALE_LABELS = {
-    'PHQ-9':'PHQ-9旧版语音辅助结果','GAD-7':'GAD-7旧版语音辅助结果',
+    'PHQ-9':'PHQ-9语音辅助结果','GAD-7':'GAD-7语音辅助结果',
     'mood_interest':'情绪与兴趣对话指标','worry_anxiety':'担忧与焦虑对话指标',
     'stress_load':'压力负荷对话指标','sleep_wellbeing':'睡眠状态对话指标',
     'coping_resources':'应对与支持资源对话指标','social_comfort':'社交舒适度对话指标',
@@ -47,7 +48,7 @@ TOPIC_CUES = {
     'GAD-7': [('紧张','焦虑','坐立不安'),('控制','停不下','停止','担忧','担心'),('各种','不同事情','担忧','担心'),
               ('放松',),('安坐','坐立'),('烦躁','急躁','烦恼'),('害怕','可怕','发生')],
     'mood_interest': [('低落','提不起兴趣','没兴趣','心情'),('精力','疲倦','行动','做事'),('自责','没希望','希望','评价自己')],
-    'worry_anxiety': [('反复担忧','停不下来','担心','忧虑'),('紧张','焦虑','心慌'),('放松','安定','平静')],
+    'worry_anxiety': [('担忧','反复担忧','停不下来','担心','忧虑'),('紧张','焦虑','心慌'),('放松','安定','平静')],
     'stress_load': [('掌控','控制不了','安排不过来'),('压力','负担','应付不了'),('压力影响','生活安排','工作学习')],
     'sleep_wellbeing': [('入睡','睡不着','睡眠'),('夜里醒','早醒','醒来'),('白天疲惫','白天状态','睡眠影响')],
     'coping_resources': [('变化','调整','适应'),('挫折','恢复','继续行动'),('支持','帮助','找谁')],
@@ -67,6 +68,8 @@ def declines_collection(text, *, question_pending=False):
         r'(别再问|停止问|停止采集|先不做(问卷|量表|采集)|不想聊这个(问题|话题|问卷|量表|采集))',
     )
     if any(re.search(pattern, text) for pattern in explicit):
+        return True
+    if re.fullmatch(r'不想继续了[。！!，,？?]*',text):
         return True
     # A brief standalone refusal immediately answering a specific collection
     # question is meaningful; longer statements need an explicit target.
@@ -162,7 +165,7 @@ class Screening:
         # decision, user stop, danger override, or select arbitrary instruments.
         if not self.enabled or self.stage not in ('companionship','checking_in'):
             return
-        targets = target_scales or list(CUSTOM_SCALE_IDS)
+        targets = target_scales or collection_targets()
         if not ids or not targets or any(s not in ITEMS for s in targets):
             raise ValueError('invalid_concern_signal')
         self.signals = list(dict.fromkeys(ids))
@@ -183,17 +186,20 @@ class Screening:
         before = (self.stage, tuple(self.target_scales), self.review_status, self.review_completed)
         if self.review_status in ('running','pending') and fresh:
             if result['decision'] == 'follow_up':
-                self.signals=list(dict.fromkeys(e['message_id'] for e in result['evidence']))
-                self.target_scales=list(dict.fromkeys(result['target_scales']))
+                self.signals=list(dict.fromkeys([*self.signals,*[e['message_id'] for e in result['evidence']]]))
+                self.target_scales=list(dict.fromkeys([*self.target_scales,*result['target_scales']]))
                 self.detector=result['detector_version']
-                self.stage='collecting'
-                self.review_status='follow_up'
+            if self.triggered:
+                self.stage='collecting' if result['transition_ready'] else 'waiting_context'
+                self.review_status='follow_up' if result['transition_ready'] else 'waiting_context'
+                self.review_completed=False
             else:
                 self.stage='companionship'
                 self.review_status='normal'
                 self.review_completed=True
                 self.post_review_turns=0
         elif result['decision'] == 'follow_up':
+            self.review_completed=False
             if not self.triggered:
                 self.concern([e['message_id'] for e in result['evidence']],
                              result['detector_version'], result['target_scales'])
@@ -201,8 +207,10 @@ class Screening:
                 self.target_scales=list(dict.fromkeys([*self.target_scales,*result['target_scales']]))
                 self.signals=list(dict.fromkeys([*self.signals,*[e['message_id'] for e in result['evidence']]]))
                 if self.stage=='checking_in':self.stage='waiting_context'
-            # A detector may mark the conversation ready, but the explicit
-            # pacing check-in still needs the user's reply before review begins.
+            if fresh and result['transition_ready'] and self.stage=='waiting_context':
+                self.stage='collecting'
+            if self.stage in ('waiting_context','collecting'):
+                self.review_status='follow_up' if self.stage=='collecting' else 'waiting_context'
         if before != (self.stage, tuple(self.target_scales), self.review_status, self.review_completed):
             self.version += 1
             return True
@@ -231,8 +239,6 @@ class Screening:
             if self.review_completed and self.user_turn_waiting_for_reply:
                 self.post_review_turns+=1
                 self.user_turn_waiting_for_reply=False
-                if self.post_review_turns>=2:
-                    self.closing_question_asked=True
             if self.stage in ('companionship','waiting_context') and self.user_turn_waiting_for_reply:
                 self.dialogue_rounds+=1
                 self.user_turn_waiting_for_reply=False
@@ -269,6 +275,8 @@ class Screening:
         self.seen.add(entry.message_id)
         text = entry.text.strip()
         before = (self.stage, len(self.answers), self.pending, self.end_after_response)
+        # New speech can withdraw a previous wish to end, including a danger signal.
+        self.end_after_response=False
         if self.stage in ('companionship', 'waiting_context', 'complete') or self.review_completed:
             self.user_turn_waiting_for_reply=True
         if safety(text)['safety_signal'] == 'explicit_danger_expression':
@@ -371,6 +379,8 @@ class Screening:
         if self.window_end:base+=f'本次回顾范围固定为截至{self.window_end}的前两周，跨会话保持同一回顾范围，不混用不同时段。'
         if not self.enabled:
             return base+'当前会话未启用后台信息采集，只自然陪伴；用户问及功能时如实说明当前未启用，不说系统永远不会主动了解。'
+        if self.end_after_response:
+            return base+'用户已明确表示暂时没有其他想聊的内容。简短温暖告别，不再提问，不总结分数或诊断。'
         base += ('用户问“什么情况下会主动了解、是否会发起问卷”时，说明：会结合前面的具体交流，'
                  '在需要进一步了解且适合继续聊时自然问问近况，不需要用户主动要求或说特定口令，也不会据此诊断。'
                  '不要回答“我不会主动发起”“只有你主动提出才会涉及”；不把关于功能的假设问题当成用户症状。')
@@ -397,7 +407,11 @@ class Screening:
                 return base+'用户已表示暂时没有其他想聊的内容。简短温暖告别，不再提问，也不总结分数或诊断。'
             return base+'相关问题结束后，不要立即结束对话。继续温和倾听与支持，回应用户自己的感受，不宣布情绪已平缓，不直接问“好些了吗”。留意用户表达内容、语气和对话节奏是否显示愿意告一段落，不凭一次简短回答就推断；自然出现收尾信号时，委婉问今天是否还有想聊的；若用户表示没有，就简短告别不再追问。'
         _, _, topic = self.current()
-        conversational_style='每次只问一项，语气温和自然，不报量表名或题号；这些自定义对话指标用于整理近两周的状态，分数是项目内部辅助指标，未验证为正式心理测量结果，不得称为诊断或标准量表分数；用户问起用途时如实说明。'
+        conversational_style='每次只问一项，语气温和自然，不报量表名或题号；根据近两周的真实回答整理信息，结果属于对话辅助采集、待核实，不等同标准自填量表或诊断；用户问起用途时如实说明。'
+        if self.current()[0] in CUSTOM_SCALE_IDS:
+            conversational_style+='当前是项目自定义指标，不能称为标准量表分数。'
+        if (self.current()[0],self.current()[1]) in POLARITY_GUARDS:
+            conversational_style+='保留问题的负向含义，问清困难或缺少的情况，不把有兴趣、能放松等正向经历误记为症状。'
         if self.pending:
             option=OPTIONS_BY_SCALE[self.current()[0]][self.pending[0]]
             if self.current()[0]=='coping_resources':

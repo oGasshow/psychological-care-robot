@@ -58,7 +58,8 @@ def test_late_decision_cannot_set_newer_user_as_ready():
 
 def test_relevant_scales_only_and_complete_totals_with_evidence():
     s=collect()
-    for scale,items in ITEMS.items():
+    for scale in ('PHQ-9','GAD-7'):
+        items=ITEMS[scale]
         for index,_ in enumerate(items):
             value=0 if scale=='PHQ-9' and index==8 else 1
             before=len(s.answers)

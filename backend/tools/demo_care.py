@@ -490,7 +490,14 @@ def stop(root,cfg):
             try:
                 current=process_identity(record['pid'])
                 if current is not None and identity_key(current)==identity_key(record['identity']):
-                    capture_children(record,root,cfg)
+                    refreshed={**record}
+                    capture_children(refreshed,root,cfg)
+                    previous={child['pid']:child for child in record.get('children',[])}
+                    for child in refreshed.get('children',[]):
+                        if child['pid'] in previous and identity_key(child)!=identity_key(previous[child['pid']]):
+                            raise ProcessIdentityError('child_identity_changed')
+                        previous[child['pid']]=child
+                    record['children']=list(previous.values())
             except ProcessIdentityError:
                 outcomes.append({'pid':record['pid'],'status':'not_stopped','reason':'child_ownership_unverified'})
             expected_processes=[*reversed(record.get('children',[])),record['identity']]
