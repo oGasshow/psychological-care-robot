@@ -39,6 +39,17 @@ class Recorder:
             self.box.enqueue(self.external,entry.wire())
             entry.recorded=True
 
+    def sync_partial(self,seconds=3.5):
+        """Upload the current transcript rows in the same still-open session."""
+        previous=self.box.upload_policy
+        self.box.upload_policy='streaming'
+        try:
+            result=flush(self.box,self.transport,self.external,seconds=seconds)
+            result['upload_policy']='same_session_checkpoint'
+            return result
+        finally:
+            self.box.upload_policy=previous
+
     def finish(self):
         if not self.closed:
             self.box.close_session(self.external,utc_now());self.closed=True
@@ -59,11 +70,11 @@ def flush(box,transport,external=None,seconds=8):
     return dict(type='records.saved' if saved else 'records.pending',recording_session_id=sid,
                 pending=sum(r['state']!='acked' for r in rows),upload_policy='after_close')
 
-def retry(uid,token,base):
+def retry(uid,token,base,paths=None):
     results=[]
     with_transport=Transport(base,token,timeout=3)
     try:
-        for path in directory(uid).glob('voice_*.sqlite'):
+        for path in paths if paths is not None else directory(uid).glob('voice_*.sqlite'):
             box=Outbox(path,base,uid,transport=with_transport,upload_policy='after_close')
             # A process restart may have left an open local session. Seal its
             # already durable final texts before retrying; no old audio is resumed.

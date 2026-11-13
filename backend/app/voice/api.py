@@ -3,6 +3,7 @@ import asyncio
 import base64
 from contextlib import suppress
 import json
+import logging
 import os
 import time
 from urllib.parse import urlsplit
@@ -15,7 +16,7 @@ from ..database import SessionLocal
 from ..robot_records import owner, RecordError
 from . import upstream
 from .settings import settings
-from .recording import Recorder, internal_base, retry
+from .recording import Recorder, directory as outbox_directory, internal_base, retry
 from .transcripts import Transcripts, Utterance, utc_now
 from .screening import Screening, ScreeningResult, save_result, has_collected_items
 from .screening_policy import CollectionPolicy, collection_policy
@@ -25,8 +26,28 @@ from .continuity import recent_context
 from . import sega
 
 router=APIRouter(prefix='/api/robot-voice',tags=['Doubao voice'])
+logger=logging.getLogger(__name__)
 ACTIVE=set()
 RUNTIMES={}
+BACKGROUND_TASKS=set()
+
+
+async def retry_outboxes_background(uid,token,base,current_path):
+    try:
+        paths=await asyncio.to_thread(lambda:tuple(
+            path for path in outbox_directory(uid).glob('voice_*.sqlite')
+            if path.resolve()!=current_path.resolve()))
+        result=await asyncio.to_thread(retry,uid,token,base,paths)
+        if result.get('pending'):
+            logger.info('voice_outbox_retry_deferred pending=%s',result['pending'])
+    except Exception:
+        logger.warning('voice_outbox_background_retry_failed')
+
+
+def schedule_outbox_retry(uid,token,base,current_path):
+    task=asyncio.create_task(retry_outboxes_background(uid,token,base,current_path))
+    BACKGROUND_TASKS.add(task)
+    task.add_done_callback(BACKGROUND_TASKS.discard)
 
 
 @router.get('/diagnostics')
@@ -42,7 +63,21 @@ async def diagnostics(response:Response,uid=Depends(owner)):
     decision=controller.decisions[-1]['decision'] if controller.decisions else None
     count=monitor.user_count if monitor else 0
     applied=runtime.get('applied_policy_version')
-    if not controller.enabled:message='本次会话未启用后台信息采集。'
+    error_messages={
+        'context_detector_timeout':'后台判断超时；没有据此启动采集。继续交流后会重试。',
+        'context_detector_authentication_failed':'后台判断服务认证失败；没有据此启动采集。请检查服务配置。',
+        'context_detector_transport_unavailable':'后台判断服务连接失败；没有据此启动采集。继续交流后会重试。',
+        'context_detector_provider_error':'后台判断服务返回错误；没有据此启动采集。继续交流后会重试。',
+        'context_detector_invalid_output':'后台判断结果格式或原话依据未通过核验；没有据此启动采集。继续交流后会重试。',
+        'context_detector_unavailable':'后台判断暂不可用；没有据此启动采集。继续交流后会重试。',
+        'answer_candidate_timeout':'本轮自然回答整理超时；不会记为已确认条目。',
+        'answer_candidate_invalid':'本轮自然回答未通过原话或频率范围核验；不会记为已确认条目。',
+        'answer_candidate_unavailable':'本轮自然回答整理暂不可用；不会记为已确认条目。',
+        'answer_candidate_superseded':'回答期间收到了新内容，旧候选已丢弃，正在核对最新对话。',
+    }
+    last_error=monitor.last_error_code if monitor else None
+    if last_error in error_messages:message=error_messages[last_error]
+    elif not controller.enabled:message='本次会话未启用后台信息采集。'
     elif controller.stage=='collecting':message='豆包已确认采集指令，可继续自然交流。' if applied==controller.version else '采集任务已下发，正在等待豆包确认。'
     elif controller.stage=='waiting_context':message='已有进一步了解的线索，正在等待适合自然过渡的对话时机。'
     elif controller.stage=='checking_in':message='已带入历史关注任务，先了解当前感受，不因换通话清除任务。'
@@ -51,14 +86,21 @@ async def diagnostics(response:Response,uid=Depends(owner)):
     elif controller.detector_status=='unavailable':message='后台检测暂未完成，请稍后再试；没有据此启动采集。'
     elif count<3:message=f'已收到 {count} 段用户最终转录；至少 3 段后才进行首次后台检测。'
     else:message='本次尚未触发进一步采集；关于系统功能的提问不等于症状自述。'
+    raw_transport=controller.transport_diagnostics
+    transport={key:raw_transport.get(key) for key in ('audio_frames','remote_events','last_remote_event',
+        'last_client_command','capture_gap_count','session_ready_ms','last_final_role')}
+    for source,target in (('last_remote_event_at','last_remote_event_age_seconds'),
+                          ('last_final_at','last_final_age_seconds')):
+        stamp=raw_transport.get(source)
+        transport[target]=max(0,round(time.monotonic()-stamp,1)) if isinstance(stamp,(int,float)) else None
     return dict(active=True,conditional_collection_enabled=controller.enabled,session_id=runtime['session_id'],
                 stage=controller.stage,user_turns=count,first_check_min_turns=3,
                 checked_user_turns=monitor.checked_count if monitor else 0,
                 detector_running=bool(monitor and monitor.in_flight),detector_status=controller.detector_status,
                 last_decision=decision,target_scales=controller.target_scales,
                 sent_policy_version=runtime.get('sent_policy_version'),applied_policy_version=applied,
-                transport=controller.transport_diagnostics,
-                last_error_code=monitor.last_error_code if monitor else None,message=message)
+                transport=transport,
+                last_error_code=last_error,message=message)
 
 @router.get('/collection-plan')
 def collection_plan(response:Response,uid=Depends(owner)):
@@ -99,7 +141,9 @@ class ConcernSignal(BaseModel):
     session_id:Annotated[str,Field(min_length=1,max_length=100)]
     evidence_ids:Annotated[list[str],Field(min_length=1,max_length=20)]
     detector_version:Annotated[str,Field(min_length=1,max_length=100)]
-    target_scales:Annotated[list[Literal['PHQ-9','GAD-7']],Field(min_length=1,max_length=2)]=['PHQ-9','GAD-7']
+    target_scales:Annotated[list[Literal['PHQ-9','GAD-7','mood_interest','worry_anxiety',
+        'stress_load','sleep_wellbeing','coping_resources','social_comfort']],Field(min_length=1,max_length=6)]=[
+            'mood_interest','worry_anxiety','stress_load','sleep_wellbeing','coping_resources','social_comfort']
 
 @router.post('/screening-signal')
 async def screening_signal(body:ConcernSignal,uid=Depends(owner)):
@@ -173,6 +217,7 @@ async def live(ws:WebSocket):
         await ws.close(code=4403);return
     await ws.accept()
     uid=None;reserved=False;recorder=None;state=Transcripts();client_closed=False;controller=Screening()
+    session_end_code='normal'
     async def emit(value):
         nonlocal client_closed
         if client_closed:return
@@ -195,10 +240,9 @@ async def live(ws:WebSocket):
         cfg=settings()
         if not cfg.enabled or not cfg.api_key:
             await emit(dict(type='error',code='voice_not_configured',message='语音服务尚未配置。'));return
+        startup_started=time.monotonic()
         base=internal_base(ws.scope)
         await emit(dict(type='status',state='connecting',message='正在连接豆包语音…'))
-        # Retry previously sealed local queues with this owner's current JWT.
-        await asyncio.to_thread(retry,uid,auth.token,base)
         if controller.enabled:
             plan=await asyncio.to_thread(read_plan,uid,test_data())
             context=await asyncio.to_thread(recent_context,uid,is_test=test_data(),
@@ -210,7 +254,8 @@ async def live(ws:WebSocket):
             await remote.send(json.dumps({'type':'input_audio_mute.commit'}))
             recorder=await asyncio.to_thread(Recorder,uid,auth.token,base,is_test=test_data(),device_id=auth.device_id)
             queue=asyncio.Queue(maxsize=16);pending_versions=[]
-            transport=dict(audio_frames=0,remote_events=0,last_remote_event=None,last_client_command=None)
+            transport=dict(audio_frames=0,remote_events=0,last_remote_event=None,last_client_command=None,
+                           capture_gap_count=0,last_remote_event_at=None,last_final_role=None,last_final_at=None)
             controller.transport_diagnostics=transport
             last_frame=time.monotonic();mic_enabled=False
             RUNTIMES[uid]=dict(session_id=recorder.external,queue=queue,controller=controller,transcripts=state,
@@ -222,7 +267,7 @@ async def live(ws:WebSocket):
                 pending_versions.append(controller.version)
                 RUNTIMES[uid]['sent_policy_version']=controller.version
                 await remote.send(json.dumps(payload,ensure_ascii=False))
-                await emit(controller.view())
+                await emit(controller.public_status())
             async def receive_control():
                 while True:
                     signal=await queue.get()
@@ -230,9 +275,39 @@ async def live(ws:WebSocket):
                     await update_policy()
             monitor=ScreeningMonitor(controller,update_policy,provider=policy.detector,emit=emit,history=context['turns'])
             RUNTIMES[uid]['monitor']=monitor
+            review_tasks=set()
+            checkpoint_uploads=set()
+            async def review_checkpoint(snapshot_hash,start_user_count):
+                sync_task=asyncio.create_task(asyncio.to_thread(recorder.sync_partial,3.5))
+                checkpoint_uploads.add(sync_task)
+                sync_task.add_done_callback(checkpoint_uploads.discard)
+                try:
+                    await interrupt('review_checkpoint')
+                    await remote.send(json.dumps({'type':'speech_text_buffer.commit',
+                        'text':'我先把咱们刚才聊的内容梳理一下，稍等我一小会儿，马上回来跟你接着说。'},ensure_ascii=False))
+                    completed=await monitor.wait_for_snapshot(snapshot_hash,3.8)
+                    if (not completed or monitor.last_error_code) and controller.stage=='reviewing':
+                        controller.review_status='pending'
+                        controller.stage='companionship'
+                        controller.version+=1
+                        await update_policy()
+                    # The same live call remains available throughout. If the
+                    # person spoke during review, let the model answer them and
+                    # do not inject a competing scripted greeting.
+                    if monitor.user_count==start_user_count:
+                        await interrupt('review_return')
+                        await remote.send(json.dumps({'type':'speech_text_buffer.commit',
+                            'text':'你好呀，我回来了，我们继续吧。'},ensure_ascii=False))
+                except (WebSocketDisconnect,upstream.VoiceServiceError):
+                    return
             if controller.enabled:await update_policy()
+            transport['session_ready_ms']=round((time.monotonic()-startup_started)*1000)
+            logger.info('voice_session_ready latency_ms=%s',transport['session_ready_ms'])
             await emit(dict(type='session.ready',session_id=recorder.external,input_rate=16000,output_rate=24000,
                             is_test=test_data(),protocol='voice-bridge-v1'))
+            # Scan and retry older outboxes in the background. Exclude the live
+            # session database so recovery can never close the current call.
+            schedule_outbox_retry(uid,auth.token,base,recorder.box.path)
             greeting=Utterance('greeting','assistant','turn_0',text=upstream.GREETING,final=True,occurred_at=utc_now())
             state.responses['greeting']=greeting;state.active_response='greeting'
             await persist(greeting);await emit(greeting.public(True))
@@ -247,9 +322,11 @@ async def live(ws:WebSocket):
                 if entries:
                     await remote.send(json.dumps({'type':'response.cancel'}))
             async def receive_remote():
+                closing_text=None
                 async for raw_event in remote:
                     event=upstream.decode_event(raw_event);kind=event['type']
                     transport['remote_events']+=1;transport['last_remote_event']=kind
+                    transport['last_remote_event_at']=time.monotonic()
                     if kind=='session.updated' and pending_versions:
                         applied=pending_versions.pop(0)
                         RUNTIMES[uid]['applied_policy_version']=applied
@@ -259,10 +336,20 @@ async def live(ws:WebSocket):
                     entry,public=state.apply(event)
                     if public:
                         if public['type']=='transcript.final':
+                            transport['last_final_role']=entry.role
+                            transport['last_final_at']=time.monotonic()
                             await persist(entry)
                             version=controller.version;controller.observe(entry)
                             monitor.observe(entry)
                             if version!=controller.version:await update_policy()
+                            if entry.role=='user' and controller.stage=='reviewing' and not review_tasks:
+                                snapshot_hash=monitor.snapshot()['source_snapshot_hash']
+                                task=asyncio.create_task(review_checkpoint(snapshot_hash,monitor.user_count))
+                                review_tasks.add(task);task.add_done_callback(review_tasks.discard)
+                            if entry.role=='user' and controller.end_after_response and closing_text is None:
+                                closing_text='好，那我们今天先聊到这里。谢谢你愿意和我分享，之后想继续聊时可以再回来。'
+                                await interrupt('conversation_finished')
+                                await remote.send(json.dumps({'type':'speech_text_buffer.commit','text':closing_text},ensure_ascii=False))
                         await emit(public)
                     if kind=='response.output_audio.delta' and entry and not entry.interrupted:
                         encoded=event.get('delta','')
@@ -271,6 +358,10 @@ async def live(ws:WebSocket):
                         await emit(dict(type='audio.delta',message_id=entry.message_id,audio=encoded,rate=24000))
                     elif kind=='response.output_audio.done' and entry and not entry.interrupted:
                         await emit(dict(type='audio.done',message_id=entry.message_id))
+                        if closing_text and '我们今天先聊到这里' in entry.text:
+                            await emit(dict(type='dialogue.finished'))
+                            await remote.send(json.dumps({'type':'session.close'}))
+                            break
                     elif kind=='response.canceled':
                         await emit(dict(type='status',state='interrupted',message='已打断旧回复，可以继续说。'))
                     elif kind=='session.closed':break
@@ -344,19 +435,37 @@ async def live(ws:WebSocket):
                     await remote.send(json.dumps({'type':'session.close'}))
                     with suppress(TimeoutError):await asyncio.wait_for(asyncio.shield(receiver),2)
             finally:
-                for task in (receiver,client,deadline,control,detector,guard):task.cancel()
-                await asyncio.gather(receiver,client,deadline,control,detector,guard,return_exceptions=True)
+                for task in (receiver,client,deadline,control,detector,guard,*review_tasks):task.cancel()
+                await asyncio.gather(receiver,client,deadline,control,detector,guard,*review_tasks,return_exceptions=True)
+                if checkpoint_uploads:
+                    await asyncio.gather(*checkpoint_uploads,return_exceptions=True)
     except RecordError:
+        session_end_code='authentication_required'
         await emit(dict(type='error',code='authentication_required',message='登录已失效，请重新登录。'))
     except (ValidationError,ValueError,TypeError,KeyError):
+        session_end_code='voice_protocol_invalid'
         await emit(dict(type='error',code='voice_protocol_invalid',message='语音数据格式不正确，请重新开始。'))
     except upstream.VoiceServiceError as exc:
+        session_end_code=exc.code
         await emit(dict(type='error',code=exc.code,provider_code=exc.provider_code,message='语音服务暂时无法继续，已保存的文字将保留，可稍后重试。'))
-    except (TimeoutError,WebSocketDisconnect):pass
+    except (TimeoutError,WebSocketDisconnect):
+        session_end_code='timeout_or_disconnect'
     except Exception:
         # No raw exception or provider payload can expose credentials/text.
+        session_end_code='voice_session_failed'
         await emit(dict(type='error',code='voice_session_failed',message='本次语音连接已结束，正在尝试保存已有文字。'))
     finally:
+        transport=controller.transport_diagnostics
+        command=transport.get('last_client_command')
+        if command not in ('finish','screening.action','interrupt','mute','unmute','commit','playback'):
+            command=None
+        logger.info('voice_session_closed outcome=%s stage=%s audio_frames=%s remote_events=%s '
+                    'last_remote_event=%s capture_gap_count=%s last_client_command=%s detector_error=%s',
+                    session_end_code,controller.stage,transport.get('audio_frames',0),
+                    transport.get('remote_events',0),transport.get('last_remote_event'),
+                    transport.get('capture_gap_count',0),command,
+                    RUNTIMES.get(uid,{}).get('monitor').last_error_code
+                    if uid and RUNTIMES.get(uid,{}).get('monitor') else None)
         if recorder:
             try:
                 for entry in state.unfinished():

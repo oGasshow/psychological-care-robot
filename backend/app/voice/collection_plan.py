@@ -6,7 +6,7 @@ from sqlalchemy import Column,Integer,String,JSON,ForeignKey
 from ..database import Base,SessionLocal
 from ..robot_records import now,RecordSession,RecordMessage
 from ..care.models import InputRevision
-from .screening import ITEMS
+from .screening import ITEMS,SCALE_LABELS
 
 class CollectionPlan(Base):
     __tablename__='robot_voice_collection_plans'
@@ -78,7 +78,9 @@ def public_plan(uid,is_test):
     if not data:return dict(needs_collection=False,status='no_task',scales=[])
     return dict(needs_collection=data['needs_collection'],status=data['status'],episode_id=data['episode_id'],
         window_end=data['window_end'],formal_assessment=False,
-        scales=[dict(scale=s,answered=sum(f'{s}:{i+1}' in data['answers'] for i in range(len(ITEMS[s]))),required=len(ITEMS[s])) for s in data['target_scales']])
+        scales=[dict(scale=s,display_name=SCALE_LABELS.get(s,s),
+            answered=sum(f'{s}:{i+1}' in data['answers'] for i in range(len(ITEMS[s]))),required=len(ITEMS[s]))
+            for s in data['target_scales']])
 
 def backfill_recent_plans():
     """Bootstrap existing owned voice history without inventing scale answers."""

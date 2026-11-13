@@ -484,9 +484,18 @@ def stop(root,cfg):
         if not valid:
             outcomes.append({'pid':record.get('pid'),'status':'not_stopped','reason':'ownership_record_unverified'})
         else:
+            # Windows workers and Node may create descendants after startup.
+            # Refresh the verified tree before signaling so expected late
+            # children do not permanently block a safe demo shutdown.
+            try:
+                current=process_identity(record['pid'])
+                if current is not None and identity_key(current)==identity_key(record['identity']):
+                    capture_children(record,root,cfg)
+            except ProcessIdentityError:
+                outcomes.append({'pid':record['pid'],'status':'not_stopped','reason':'child_ownership_unverified'})
             expected_processes=[*reversed(record.get('children',[])),record['identity']]
             known={value['pid'] for value in expected_processes}
-            for expected in expected_processes:
+            for expected in (() if outcomes else expected_processes):
                 outcome={'pid':expected['pid']}
                 try:
                     current=process_identity(expected['pid'])
