@@ -25,20 +25,23 @@ def has_saved_answers(uid,is_test):
 
 def read_plan(uid,is_test):
     with SessionLocal() as db:
-        row=db.get(CollectionPlan,key(uid,is_test))
-        if not row:return None
-        data=deepcopy(row.payload)
-        # Answers only survive if all original owned sources still exist and are unchanged.
-        for item,answer in list(data.get('answers',{}).items()):
-            from .collection_sources import answer_records
-            _,valid=answer_records(db,uid,is_test,answer)
-            if not valid:
-                data['answers'].pop(item)
-                data.update(needs_collection=True,status='needs_revalidation')
-        if (datetime.now(timezone(timedelta(hours=8))).date()-datetime.fromisoformat(data['window_end']).date()).days>=14 and data.get('needs_collection'):
-            data.update(answers={},status='needs_revalidation',window_end=datetime.now(timezone(timedelta(hours=8))).date().isoformat())
-        data['updated_at']=row.updated_at
-        return data
+        return read_plan_in_db(db,uid,is_test)
+
+def read_plan_in_db(db,uid,is_test):
+    row=db.get(CollectionPlan,key(uid,is_test))
+    if not row:return None
+    data=deepcopy(row.payload)
+    # Answers only survive if all original owned sources still exist and are unchanged.
+    for item,answer in list(data.get('answers',{}).items()):
+        from .collection_sources import answer_records
+        _,valid=answer_records(db,uid,is_test,answer)
+        if not valid:
+            data['answers'].pop(item)
+            data.update(needs_collection=True,status='needs_revalidation')
+    if (datetime.now(timezone(timedelta(hours=8))).date()-datetime.fromisoformat(data['window_end']).date()).days>=14 and data.get('needs_collection'):
+        data.update(answers={},status='needs_revalidation',window_end=datetime.now(timezone(timedelta(hours=8))).date().isoformat())
+    data['updated_at']=row.updated_at
+    return data
 
 def restore(controller,data):
     if not data or not data.get('needs_collection'):return
@@ -53,31 +56,34 @@ def restore(controller,data):
     else:controller.stage='waiting_context'
 
 def store_plan(uid,is_test,controller):
-    if not controller.enabled:return
     with SessionLocal() as db:
-        previous=db.get(CollectionPlan,key(uid,is_test))
-        if not (controller.triggered or controller.stage in ('urgent','checking_in') or previous and previous.payload.get('needs_collection')):return
-        if previous and previous.payload.get('needs_collection') and controller.episode_id is None:
-            old=previous.payload
-            controller.episode_id=old['episode_id'];controller.window_end=old['window_end']
-            controller.answers={**old.get('answers',{}),**controller.answers}
-            controller.target_scales=list(dict.fromkeys([*old.get('target_scales',[]),*controller.target_scales]))
-            controller.signals=list(dict.fromkeys([*old.get('signal_evidence',[]),*controller.signals]))
-            controller.history_danger_unresolved|=old.get('history_danger_unresolved',False)
-            if controller.stage=='companionship':controller.stage='waiting_context'
-        if not controller.episode_id:controller.episode_id=uuid.uuid4().hex
-        if not controller.window_end:
-            controller.window_end=datetime.now(timezone(timedelta(hours=8))).date().isoformat()
-        complete=bool(controller.target_scales) and all(f'{s}:{i+1}' in controller.answers for s in controller.target_scales for i in range(len(ITEMS[s])))
-        status='complete' if complete else controller.stage
-        payload=dict(needs_collection=not complete,status=status,episode_id=controller.episode_id,
-            window_end=controller.window_end,target_scales=controller.target_scales,answers=controller.answers,
-            signal_evidence=controller.signals,history_danger_unresolved=controller.history_danger_unresolved or controller.stage=='urgent',
-            detector_version=controller.detector,
-            history_session_ids=controller.history_session_ids,observations=controller.observations,formal_assessment=False,
-            completed_at=now() if complete else None)
-        db.merge(CollectionPlan(key=key(uid,is_test),owner=uid,payload=deepcopy(payload),updated_at=now()))
+        store_plan_in_db(db,uid,is_test,controller)
         db.commit()
+
+def store_plan_in_db(db,uid,is_test,controller):
+    if not controller.enabled:return
+    previous=db.get(CollectionPlan,key(uid,is_test))
+    if not (controller.triggered or controller.stage in ('urgent','checking_in') or previous and previous.payload.get('needs_collection')):return
+    if previous and previous.payload.get('needs_collection') and controller.episode_id is None:
+        old=previous.payload
+        controller.episode_id=old['episode_id'];controller.window_end=old['window_end']
+        controller.answers={**old.get('answers',{}),**controller.answers}
+        controller.target_scales=list(dict.fromkeys([*old.get('target_scales',[]),*controller.target_scales]))
+        controller.signals=list(dict.fromkeys([*old.get('signal_evidence',[]),*controller.signals]))
+        controller.history_danger_unresolved|=old.get('history_danger_unresolved',False)
+        if controller.stage=='companionship':controller.stage='waiting_context'
+    if not controller.episode_id:controller.episode_id=uuid.uuid4().hex
+    if not controller.window_end:
+        controller.window_end=datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    complete=bool(controller.target_scales) and all(f'{s}:{i+1}' in controller.answers for s in controller.target_scales for i in range(len(ITEMS[s])))
+    status='complete' if complete else controller.stage
+    payload=dict(needs_collection=not complete,status=status,episode_id=controller.episode_id,
+        window_end=controller.window_end,target_scales=controller.target_scales,answers=controller.answers,
+        signal_evidence=controller.signals,history_danger_unresolved=controller.history_danger_unresolved or controller.stage=='urgent',
+        detector_version=controller.detector,
+        history_session_ids=controller.history_session_ids,observations=controller.observations,formal_assessment=False,
+        completed_at=now() if complete else None)
+    db.merge(CollectionPlan(key=key(uid,is_test),owner=uid,payload=deepcopy(payload),updated_at=now()))
 
 def public_plan(uid,is_test):
     data=read_plan(uid,is_test)

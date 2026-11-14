@@ -104,6 +104,7 @@ class Screening:
     def __init__(self, enabled=False, notice_version=''):
         self.enabled = enabled
         self.notice_version = notice_version
+        self.review_mode = 'live'
         self.stage = 'companionship'
         self.signals, self.target_scales, self.decisions = [], [], []
         self.answers, self.pending = {}, None
@@ -211,6 +212,13 @@ class Screening:
                 self.stage='collecting'
             if self.stage in ('waiting_context','collecting'):
                 self.review_status='follow_up' if self.stage=='collecting' else 'waiting_context'
+        elif (self.review_mode=='post_session' and self.triggered and fresh
+              and self.stage in ('waiting_context','checking_in')):
+            # A saved task survives a quiet follow-up call. Current readiness,
+            # rather than another symptom trigger, governs continuing it.
+            if result['transition_ready']:
+                self.stage,self.review_status='collecting','follow_up'
+            self.review_completed=False
         if before != (self.stage, tuple(self.target_scales), self.review_status, self.review_completed):
             self.version += 1
             return True
@@ -247,7 +255,7 @@ class Screening:
                         and not self.context_checkin_asked):
                     self.context_checkin_due=True
                     self.version+=1
-            if (self.stage in ('companionship','waiting_context') and self.context_checkin_due and not self.context_checkin_asked
+            if (self.review_mode=='live' and self.stage in ('companionship','waiting_context') and self.context_checkin_due and not self.context_checkin_asked
                     and re.search(r'继续.{0,4}(说|聊|分享|倾诉)|还想.{0,4}(说|聊|分享|倾诉)|一起.{0,4}(了解|看看|梳理)', entry.text)):
                 self.context_checkin_due=False
                 self.context_checkin_asked=True
@@ -291,7 +299,7 @@ class Screening:
         elif self.stage not in ('declined', 'urgent', 'complete'):
             if declines_collection(text, question_pending=bool(self.question_key)):
                 self.action('decline')
-            elif (self.stage in ('waiting_context','companionship') and self.context_checkin_asked
+            elif (self.review_mode=='live' and self.stage in ('waiting_context','companionship') and self.context_checkin_asked
                   and accepts_review_transition(text)):
                 # A clear answer marks the end of the venting segment. Keep the
                 # same call open while its transcript is reviewed in background.
@@ -353,7 +361,7 @@ class Screening:
                                max_score=len(values)*(len(OPTIONS_BY_SCALE[scale])-1),
                                total=sum(v['value'] for v in values) if complete else None,
                                status='complete_unverified' if complete else 'incomplete', items=values))
-        return dict(type='screening.status', stage=self.stage, version=self.version, review_status=self.review_status, scales=scales,
+        return dict(type='screening.status', stage=self.stage, version=self.version, review_status=self.review_status, review_mode=self.review_mode, scales=scales,
                     triggered=self.triggered, source='conversation_assisted', verification_status='unverified',
                     protocol='conditional-dialogue-indicators-v1', indicator_version='conversation-indicator-3x5-v1',
                     recall_window='past_two_weeks',
@@ -366,6 +374,7 @@ class Screening:
 
     def public_status(self):
         return dict(type='screening.status',stage=self.stage,version=self.version,
+                    review_mode=self.review_mode,
                     triggered=self.triggered,detector_status=self.detector_status,
                     review_status=self.review_status,
                     formal_assessment=False)
@@ -389,6 +398,9 @@ class Screening:
         if self.stage=='reviewing':
             return base+'用户刚结束一段倾诉，先温和说“我先把咱们刚才聊的内容梳理一下，稍等我一小会儿，马上回来跟你接着说。”后台最多等待约4秒，整个语音连接保持开启。期间若用户明确在问你或继续对你说话，正常回应并倾听；若明显是在自言自语或对旁人说话，不要插话。后台会根据本段文字决定是否以及沿哪些方向进一步了解，不要自行猜测是否要做、做哪些指标，不要宣布情绪正常。'
         if self.stage in ('companionship', 'waiting_context'):
+            if self.review_mode=='post_session':
+                return base+('新的关注线索会在本次通话文字保存后由后台复核，不要让用户等待后台分析、说“准备好了”或确认是否开始问卷。'
+                    '本次先自然倾听并回应具体经历。已有跨会话任务时先留意此刻是否适合继续，后台下发采集阶段后再自然衔接指定话题；未安排任务时不自行执行固定条目。')
             if self.review_completed:
                 if self.closing_question_asked:
                     return base+'刚才的对话回顾未发现足够线索安排项目内对话指标。自然继续陪伴几轮，不提量表，不判断用户情绪“正常”或“平复”。已经委婉问过是否还想聊；若用户明确表示没有，就温暖告别并结束本次通话。'
@@ -437,7 +449,7 @@ def save_result(uid, sid, controller):
     with SessionLocal() as db:
         view=controller.view()
         db.merge(CollectionTrace(session_id=sid,owner=uid,payload={k:view[k] for k in
-            ('stage','triggered','detector_status','detector_version','review_status','protocol','purchase_notice_version',
+            ('stage','triggered','detector_status','detector_version','review_status','review_mode','protocol','purchase_notice_version',
              'observations','history_session_ids','history_danger_unresolved','episode_id','window_end','transport_diagnostics')}))
         if has_collected_items(view):
             db.merge(ScreeningResult(session_id=sid, owner=uid, payload=view))

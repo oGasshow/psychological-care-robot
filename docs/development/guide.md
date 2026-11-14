@@ -52,6 +52,8 @@ npm --prefix frontend run lint:changes
 
 真实云调用、浏览器和生命周期验证分别见[语音](../features/voice.md)、[自然采集](../features/screening.md)、[SEGA](../features/sega.md)、[前端验证](frontend.md)及[完整复核入口](../operations/installation.md)。这些检查可能调用云服务或向专用演示库写入虚构记录，按对应说明使用隔离环境。
 
+通话后复核随现有 `python -m app.care.worker` 启动，单独线程执行模型调用；只运行 API 不会消费该队列。`ROBOT_CARE_CONCERN_REVIEW_MODE=post_session` 为默认流程，`live` 保留原逐回合模式供回归。新增回归见 [test_after_call.py](../../backend/tests/test_after_call.py)；[check-after-call-ui.mjs](../../frontend/tools/check-after-call-ui.mjs) 使用虚构 API 响应核对浏览器中的状态、重试和跨会话部分条目，不读取生产数据。
+
 ## 文档维护约定
 
 - 根目录 README 只保留项目概况和入口；功能说明写入 docs/features，不再新增根目录 README_*.md。

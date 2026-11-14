@@ -357,6 +357,10 @@ def delete_session(sid: ResourceID, uid=Depends(owner)):
             db.query(CollectionTrace).filter_by(session_id=sid,owner=uid).delete()
             from .voice.collection_plan import CollectionPlan
             from .voice.sega import SegaAnalysis
+            from .voice.after_call import AfterCallReview
+            for review in db.query(AfterCallReview).filter_by(owner=uid).all():
+                if review.session_id==sid or any(ref['recording_session_id']==sid for ref in review.source_refs.values()):
+                    db.delete(review)
             for plan in db.query(CollectionPlan).filter_by(owner=uid).all():
                 if sid in plan.payload.get('history_session_ids',[]):db.delete(plan)
             db.query(SegaAnalysis).filter_by(session_id=sid,owner=uid).delete()

@@ -62,9 +62,13 @@ class ScreeningMonitor:
             self.schedule(force=True)
 
     def schedule(self, *, force=False):
+        post_session=self.controller.review_mode=='post_session'
+        if post_session and not self.controller.triggered:
+            return
+        minimum=1 if self.controller.stage=='collecting' else (2 if post_session else 1 if self.history else 3)
         if (not self.controller.enabled or self.provider != 'doubao_realtime'
                 or self.controller.stage not in ('companionship', 'waiting_context','checking_in','reviewing','collecting')
-                or self.user_count < (1 if self.history or self.controller.stage=='collecting' else 3)
+                or self.user_count < minimum
                 or self.scheduled_revision == self.revision
                 or (not force and self.scheduled_count
                     and self.controller.stage not in ('collecting', 'waiting_context', 'checking_in')

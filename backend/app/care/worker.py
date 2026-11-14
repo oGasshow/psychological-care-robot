@@ -138,6 +138,11 @@ def main():
     from ..main import app
     worker=Worker()
     stop=threading.Event()
+    from ..voice.after_call import ReviewWorker,run as run_reviews
+    review_thread=None
+    if not args.once:
+        review_thread=threading.Thread(target=run_reviews,args=(stop,),daemon=True,name='after-call-review')
+        review_thread.start()
     try:
         while not stop.is_set():
             worker.scan()
@@ -145,12 +150,17 @@ def main():
                 processed=0
                 while worker.step():
                     processed+=1
+                reviews=ReviewWorker();reviews.scan()
+                while reviews.step():pass
                 print('{"analysis_worker":"completed","processed":'+str(processed)+'}')
                 return
             if not worker.step():
                 stop.wait(worker.active.poll_seconds)
     except KeyboardInterrupt:
         stop.set()
+    finally:
+        stop.set()
+        if review_thread:review_thread.join(timeout=1)
 
 if __name__=='__main__':
     main()

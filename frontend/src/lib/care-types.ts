@@ -67,8 +67,13 @@ export interface CollectionResult {
 }
 export interface CollectionPlan { needs_collection: boolean; status: string; scales: CollectionScale[] }
 export interface AssessmentsData {
+  after_call_review_mode?: string; after_call_reviews?: AfterCallReview[];
   collection_plan?: CollectionPlan; conversation_collections?: CollectionResult[];
   provider: string; status?: string; provider_status?: string; source_kind?: string; items?: Assessment[];
+}
+export interface AfterCallReview {
+  recording_session_id: number; state: string; attempt: number; updated_at: string; error_code?: string | null;
+  decision?: string | null; target_scales: string[]; message: string;
 }
 export interface TimeScope { time_from: string; time_to: string; session_ids?: undefined }
 export type ReportScope = TimeScope | { session_ids: number[]; time_from?: string; time_to?: string };
@@ -112,10 +117,11 @@ export interface ReportData {
 }
 export interface SegaStatus { message: string; probe_allowed: boolean; installed: boolean }
 export interface SegaProbe { status: string; device?: string }
-export interface VoiceConfig { enabled: boolean; conditional_collection_enabled: boolean; is_test: boolean; message: string }
+export interface VoiceConfig { enabled: boolean; conditional_collection_enabled: boolean; is_test: boolean; message: string; concern_review_mode?: string }
 export interface ScreeningStatus {
   type: 'screening.status'; stage: string; version: number; triggered: boolean; detector_status: string;
   review_status: string; error_code?: string;
+  review_mode?: string;
 }
 export interface RecordingReceipt {
   type: 'records.saved' | 'records.pending' | 'records.error'; recording_session_id?: number; pending?: number; message?: string;

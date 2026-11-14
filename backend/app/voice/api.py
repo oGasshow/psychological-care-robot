@@ -24,6 +24,7 @@ from .screening_monitor import ScreeningMonitor
 from .collection_plan import read_plan,restore,store_plan,public_plan,has_saved_answers
 from .continuity import recent_context
 from . import sega
+from .after_call import public_reviews, AfterCallReview,touch_live_call,end_live_call
 
 router=APIRouter(prefix='/api/robot-voice',tags=['Doubao voice'])
 logger=logging.getLogger(__name__)
@@ -78,6 +79,7 @@ async def diagnostics(response:Response,uid=Depends(owner)):
     last_error=monitor.last_error_code if monitor else None
     if last_error in error_messages:message=error_messages[last_error]
     elif not controller.enabled:message='本次会话未启用后台信息采集。'
+    elif controller.review_mode=='post_session' and not controller.triggered:message='本次新出现的关注线索会在结束并保存后后台复核；不会让当前语音等待判定。'
     elif controller.stage=='collecting':message='豆包已确认采集指令，可继续自然交流。' if applied==controller.version else '采集任务已下发，正在等待豆包确认。'
     elif controller.stage=='waiting_context':message='已有进一步了解的线索，正在等待适合自然过渡的对话时机。'
     elif controller.stage=='checking_in':message='已带入历史关注任务，先了解当前感受，不因换通话清除任务。'
@@ -94,6 +96,7 @@ async def diagnostics(response:Response,uid=Depends(owner)):
         stamp=raw_transport.get(source)
         transport[target]=max(0,round(time.monotonic()-stamp,1)) if isinstance(stamp,(int,float)) else None
     return dict(active=True,conditional_collection_enabled=controller.enabled,session_id=runtime['session_id'],
+                concern_review_mode=controller.review_mode,
                 stage=controller.stage,user_turns=count,first_check_min_turns=3,
                 checked_user_turns=monitor.checked_count if monitor else 0,
                 detector_running=bool(monitor and monitor.in_flight),detector_status=controller.detector_status,
@@ -106,6 +109,25 @@ async def diagnostics(response:Response,uid=Depends(owner)):
 def collection_plan(response:Response,uid=Depends(owner)):
     response.headers['Cache-Control']='no-store'
     return public_plan(uid,test_data())
+
+@router.get('/after-call-reviews')
+def after_call_reviews(response:Response,uid=Depends(owner)):
+    response.headers['Cache-Control']='no-store'
+    return dict(items=public_reviews(uid,test_data()))
+
+@router.post('/after-call-reviews/{sid}/retry')
+def retry_after_call_review(sid:int,response:Response,uid=Depends(owner)):
+    from ..robot_records import owned,transaction
+    from fastapi import HTTPException
+    response.headers['Cache-Control']='no-store'
+    with transaction(True) as db:
+        owned(db,sid,uid)
+        row=db.get(AfterCallReview,sid)
+        if row is None or row.owner!=uid:raise HTTPException(404,'review_not_found')
+        if row.state not in ('failed','retry_wait','invalidated'):raise HTTPException(409,'review_not_retryable')
+        row.state,row.attempt='pending',0
+        row.error_code=row.next_retry_at=row.execution_token=row.lease_until=None
+    return dict(status='queued')
 
 @router.get('/sega/status')
 def sega_status(response:Response,uid=Depends(owner)):
@@ -181,11 +203,13 @@ def config(response:Response,uid=Depends(owner)):
         limit=cfg.session_seconds
     except (ValueError,TypeError):
         enabled,limit=False,900
-    try:conditional_enabled=collection_policy().enabled
-    except (ValueError,TypeError):conditional_enabled=False
+    try:
+        policy=collection_policy();conditional_enabled=policy.enabled;review_mode=policy.review_mode
+    except (ValueError,TypeError):conditional_enabled,review_mode=False,'post_session'
     return dict(enabled=enabled,input_rate=16000,output_rate=24000,frame_bytes=640,
                 session_seconds=limit,is_test=test_data(),protocol='voice-bridge-v1',
                 conditional_collection_enabled=conditional_enabled,
+                concern_review_mode=review_mode,
                 message='可以开始语音对话。' if enabled else '语音服务尚未配置，请联系项目维护人员。')
 
 @router.post('/retry-records')
@@ -216,7 +240,7 @@ async def live(ws:WebSocket):
         await ws.close(code=4403);return
     await ws.accept()
     uid=None;reserved=False;recorder=None;state=Transcripts();client_closed=False;controller=Screening()
-    session_end_code='normal'
+    session_end_code='normal';review_lease=False
     async def emit(value):
         nonlocal client_closed
         if client_closed:return
@@ -232,6 +256,7 @@ async def live(ws:WebSocket):
         try:policy=collection_policy()
         except (ValueError,TypeError):policy=CollectionPolicy(False,'','doubao_realtime')
         controller=Screening(policy.enabled,policy.notice_version)
+        controller.review_mode=policy.review_mode
         uid=await asyncio.to_thread(authenticate_token,auth.token)
         if uid in ACTIVE:
             await emit(dict(type='error',code='voice_session_active',message='已有语音会话正在进行，请先结束另一处会话。'));return
@@ -261,6 +286,9 @@ async def live(ws:WebSocket):
         async with upstream.connection(cfg,instructions=controller.instructions()) as (remote,created):
             await remote.send(json.dumps({'type':'input_audio_mute.commit'}))
             recorder=await asyncio.to_thread(Recorder,uid,auth.token,base,is_test=test_data(),device_id=auth.device_id)
+            if controller.enabled and controller.review_mode=='post_session':
+                await asyncio.to_thread(touch_live_call,uid,test_data(),recorder.external)
+                review_lease=True
             queue=asyncio.Queue(maxsize=16);pending_versions=[]
             transport=dict(audio_frames=0,remote_events=0,last_remote_event=None,last_client_command=None,
                            capture_gap_count=0,last_remote_event_at=None,last_final_role=None,last_final_at=None)
@@ -421,8 +449,12 @@ async def live(ws:WebSocket):
                         raise ValueError('unsupported_voice_command')
             async def capture_guard():
                 nonlocal mic_enabled
+                lease_touch=time.monotonic()
                 while True:
                     await asyncio.sleep(2)
+                    if review_lease and time.monotonic()-lease_touch>10:
+                        await asyncio.to_thread(touch_live_call,uid,test_data(),recorder.external)
+                        lease_touch=time.monotonic()
                     if mic_enabled and time.monotonic()-last_frame>6:
                         await remote.send(json.dumps({'type':'input_audio_mute.commit'}));mic_enabled=False
                         transport['capture_gap_count']=transport.get('capture_gap_count',0)+1
@@ -495,6 +527,8 @@ async def live(ws:WebSocket):
                 await emit(result)
             except Exception:
                 await emit(dict(type='records.error',pending=None,message='部分文字未能确认保存，请保留本页内容并联系项目维护人员。'))
+        if review_lease and recorder:
+            with suppress(Exception):await asyncio.to_thread(end_live_call,uid,test_data(),recorder.external)
         if reserved:ACTIVE.discard(uid);RUNTIMES.pop(uid,None)
         with suppress(RuntimeError,WebSocketDisconnect):await ws.close()
 

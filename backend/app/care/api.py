@@ -198,8 +198,10 @@ def get_assessments(uid=Depends(owner)):
         from .collection_history import collection_history
         from ..voice.collection_plan import public_plan
         from ..voice.api import test_data
+        from ..voice.after_call import public_reviews,enabled as after_call_policy
         return dict(**assessments(db,uid),conversation_collections=collection_history(db,uid),conversation_limit=100,
-            collection_plan=public_plan(uid,test_data()))
+            collection_plan=public_plan(uid,test_data()),after_call_reviews=public_reviews(uid,test_data()),
+            after_call_review_mode='post_session' if after_call_policy() else 'disabled')
 
 @router.get('/trends')
 def get_trends(time_from:Annotated[UTCText|None,Query(alias='from')]=None,time_to:Annotated[UTCText|None,Query(alias='to')]=None,uid=Depends(owner)):

@@ -22,6 +22,9 @@ os.environ['ROBOT_CARE_REPORT_PROVIDER'] = 'disabled'
 os.environ['ROBOT_CARE_ANALYSIS_ENGINE'] = 'rules'
 os.environ['ROBOT_CARE_GUIDED_SCREENING_ENABLED'] = 'false'
 os.environ['ROBOT_CARE_PURCHASE_NOTICE_VERSION'] = ''
+# Preserve explicit coverage of the earlier live detector; post-session tests
+# select the new deployment default independently.
+os.environ['ROBOT_CARE_CONCERN_REVIEW_MODE'] = 'live'
 os.environ['PYTHONUTF8'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
