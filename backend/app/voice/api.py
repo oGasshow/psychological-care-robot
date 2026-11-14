@@ -19,7 +19,7 @@ from .settings import settings
 from .recording import Recorder, directory as outbox_directory, internal_base, retry
 from .transcripts import Transcripts, Utterance, utc_now
 from .screening import Screening, ScreeningResult, save_result, has_collected_items
-from .screening_policy import CollectionPolicy, collection_policy, collection_targets
+from .screening_policy import CollectionPolicy, collection_policy, collection_targets,collection_demo_enabled
 from .screening_monitor import ScreeningMonitor
 from .collection_plan import read_plan,restore,store_plan,public_plan,has_saved_answers
 from .continuity import recent_context
@@ -31,6 +31,54 @@ logger=logging.getLogger(__name__)
 ACTIVE=set()
 RUNTIMES={}
 BACKGROUND_TASKS=set()
+
+class DemoStart(BaseModel):
+    evidence_id:str
+
+
+@router.get('/mode')
+def deployment_mode(response:Response):
+    response.headers['Cache-Control']='no-store'
+    try:demo=collection_demo_enabled()
+    except ValueError:return dict(mode='unavailable',name='模式配置待检查',demo_mode=False)
+    return dict(mode='demo' if demo else 'normal',name='快速采集演示' if demo else '正常模式',demo_mode=demo,
+        description='独立演示数据；单轮近况触发、3项自定义指标，按实际回答计分。' if demo
+        else '完整量表与指标采集；通话后复核，跨会话继续补充。')
+
+
+def require_demo():
+    from fastapi import HTTPException
+    try:allowed=collection_demo_enabled() and test_data()
+    except ValueError:allowed=False
+    if not allowed:raise HTTPException(404,'collection_demo_not_available')
+
+
+@router.post('/demo/start')
+async def start_collection_demo(response:Response,uid=Depends(owner)):
+    from fastapi import HTTPException
+    require_demo();response.headers['Cache-Control']='no-store'
+    runtime=RUNTIMES.get(uid)
+    if not runtime or not runtime['controller'].demo_mode:raise HTTPException(409,'demo_voice_not_active')
+    if runtime['controller'].stage not in ('companionship','waiting_context'):raise HTTPException(409,'demo_stage_not_startable')
+    users=[u for u in runtime['transcripts'].users.values() if u.final and u.text.strip()]
+    if not users:raise HTTPException(409,'demo_user_turn_required')
+    if runtime['queue'].full():raise HTTPException(429,'screening_signal_queue_full')
+    await runtime['queue'].put(DemoStart(evidence_id=users[-1].message_id))
+    return dict(status='queued',applied=False,trigger_origin='manual_demo')
+
+
+@router.post('/demo/reset')
+def reset_collection_demo(response:Response,uid=Depends(owner)):
+    from fastapi import HTTPException
+    from .collection_plan import CollectionPlan,key
+    require_demo();response.headers['Cache-Control']='no-store'
+    if uid in ACTIVE:raise HTTPException(409,'voice_session_active')
+    with SessionLocal() as db:
+        row=db.get(CollectionPlan,key(uid,True))
+        if row and row.owner==uid:
+            if row.payload.get('history_danger_unresolved'):raise HTTPException(409,'safety_followup_not_resettable')
+            db.delete(row);db.commit()
+    return dict(status='ready',history_preserved=True)
 
 
 async def retry_outboxes_background(uid,token,base,current_path):
@@ -174,6 +222,8 @@ async def screening_signal(body:ConcernSignal,uid=Depends(owner)):
     known={u.message_id for u in runtime['transcripts'].users.values() if u.final}
     if not set(body.evidence_ids)<=known:raise HTTPException(422,'unknown_user_evidence')
     if not runtime['controller'].enabled:raise HTTPException(409,'guided_collection_not_enabled')
+    if runtime['controller'].demo_mode and body.target_scales!=['mood_interest']:
+        raise HTTPException(422,'collection_demo_target_invalid')
     if runtime['queue'].full():raise HTTPException(429,'screening_signal_queue_full')
     await runtime['queue'].put(body)
     return dict(status='queued',applied=False)
@@ -204,12 +254,13 @@ def config(response:Response,uid=Depends(owner)):
     except (ValueError,TypeError):
         enabled,limit=False,900
     try:
-        policy=collection_policy();conditional_enabled=policy.enabled;review_mode=policy.review_mode
-    except (ValueError,TypeError):conditional_enabled,review_mode=False,'post_session'
+        policy=collection_policy();conditional_enabled=policy.enabled;review_mode=policy.review_mode;demo_mode=policy.demo_mode
+    except (ValueError,TypeError):conditional_enabled,review_mode,demo_mode=False,'post_session',False
     return dict(enabled=enabled,input_rate=16000,output_rate=24000,frame_bytes=640,
                 session_seconds=limit,is_test=test_data(),protocol='voice-bridge-v1',
                 conditional_collection_enabled=conditional_enabled,
                 concern_review_mode=review_mode,
+                demo_mode=demo_mode,
                 message='可以开始语音对话。' if enabled else '语音服务尚未配置，请联系项目维护人员。')
 
 @router.post('/retry-records')
@@ -257,6 +308,7 @@ async def live(ws:WebSocket):
         except (ValueError,TypeError):policy=CollectionPolicy(False,'','doubao_realtime')
         controller=Screening(policy.enabled,policy.notice_version)
         controller.review_mode=policy.review_mode
+        controller.demo_mode=policy.demo_mode and test_data()
         uid=await asyncio.to_thread(authenticate_token,auth.token)
         if uid in ACTIVE:
             await emit(dict(type='error',code='voice_session_active',message='已有语音会话正在进行，请先结束另一处会话。'));return
@@ -307,7 +359,9 @@ async def live(ws:WebSocket):
             async def receive_control():
                 while True:
                     signal=await queue.get()
-                    controller.concern(signal.evidence_ids,signal.detector_version,signal.target_scales)
+                    if isinstance(signal,DemoStart):
+                        if not controller.start_demo(signal.evidence_id):continue
+                    else:controller.concern(signal.evidence_ids,signal.detector_version,signal.target_scales)
                     await update_policy()
             monitor=ScreeningMonitor(controller,update_policy,provider=policy.detector,emit=emit,history=context['turns'])
             RUNTIMES[uid]['monitor']=monitor

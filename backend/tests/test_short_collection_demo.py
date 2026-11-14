@@ -1,0 +1,183 @@
+import asyncio
+import json
+import uuid
+import pytest
+from app.database import SessionLocal
+from app.robot_records import now,RecordMessage
+from app.voice import api
+from app.voice.screening import Screening,ITEMS,CUSTOM_OPTIONS,save_result
+from app.voice.screening_policy import collection_demo_enabled,collection_policy
+from app.voice.concern_detector import snapshot,validate
+from app.voice.screening_monitor import ScreeningMonitor
+from app.voice.transcripts import Utterance
+from app.voice.collection_plan import store_plan,read_plan
+from app.voice.collection_sources import attach_sources
+
+
+@pytest.fixture(autouse=True)
+def isolated_demo(monkeypatch):
+    for name,value in dict(APP_ENV='test',ROBOT_CARE_COLLECTION_DEMO='true',
+        ROBOT_CARE_RUNTIME_ROLE='collection_demo',ROBOT_CARE_DEMO_DATABASE='true',
+        ROBOT_CARE_GUIDED_SCREENING_ENABLED='true',ROBOT_CARE_PURCHASE_NOTICE_VERSION='fictional-demo').items():
+        monkeypatch.setenv(name,value)
+
+
+def utter(text,role='user'):
+    return Utterance(uuid.uuid4().hex,role,'demo',text=text,final=True,occurred_at=now())
+
+
+def decision(data):
+    user=next(t for t in data['turns'] if t['role']=='user')
+    return dict(decision='follow_up',target_scales=['mood_interest'],
+        evidence=[dict(message_id=user['message_id'],quote=user['text'],domain='low_mood')],
+        transition_ready=True,latest_user_quote=user['text'],reason='虚构演示线索')
+
+
+def controller():
+    s=Screening(True,'fictional-demo');s.demo_mode=True
+    return s
+
+
+def collect_three(s,values=(2,3,1)):
+    entries=[]
+    for topic,value in zip(ITEMS['mood_interest'],values):
+        for text,role in [(f'最近两周，{topic}的情况怎么样？','assistant'),(CUSTOM_OPTIONS[value],'user'),
+            (f'最近两周，{topic}大约是{CUSTOM_OPTIONS[value]}，我这样理解对吗？','assistant'),('对','user')]:
+            entry=utter(text,role);s.observe(entry);entries.append(entry)
+    return entries
+
+
+@pytest.mark.parametrize('name,value',[('APP_ENV','production'),('ROBOT_CARE_RUNTIME_ROLE','normal'),('ROBOT_CARE_DEMO_DATABASE','false')])
+def test_short_demo_requires_all_deployment_guards(monkeypatch,name,value):
+    monkeypatch.setenv(name,value)
+    with pytest.raises(ValueError):collection_demo_enabled()
+    with pytest.raises(ValueError):collection_policy()
+
+
+def test_short_demo_uses_live_mode_and_normal_mode_stays_post_session(monkeypatch):
+    monkeypatch.setenv('ROBOT_CARE_CONCERN_REVIEW_MODE','post_session')
+    assert collection_policy().demo_mode and collection_policy().review_mode=='live'
+    monkeypatch.setenv('ROBOT_CARE_COLLECTION_DEMO','false')
+    assert not collection_policy().demo_mode and collection_policy().review_mode=='post_session'
+
+
+def test_one_grounded_turn_is_only_accepted_in_isolated_demo(monkeypatch):
+    data=snapshot([utter('今天心情有点低落。')]);data['demo_mode']=True
+    result=validate(json.dumps(decision(data)),data)
+    assert result['target_scales']==['mood_interest']
+    monkeypatch.setenv('ROBOT_CARE_COLLECTION_DEMO','false')
+    with pytest.raises(ValueError,match='insufficient_concern_evidence'):validate(json.dumps(decision(data)),data)
+
+
+def test_short_demo_still_rejects_fake_evidence_and_standard_scale_targets():
+    data=snapshot([utter('今天心情有点低落。')]);data['demo_mode']=True
+    raw=decision(data);raw['evidence'][0]['quote']='没有出现过的原话'
+    with pytest.raises(ValueError,match='ungrounded'):validate(json.dumps(raw),data)
+    raw=decision(data);raw['target_scales']=['PHQ-9']
+    with pytest.raises(ValueError,match='demo_target'):validate(json.dumps(raw),data)
+
+
+def test_demo_monitor_schedules_after_one_turn_and_keeps_normal_minimum(monkeypatch):
+    async def updated():pass
+    s=controller();m=ScreeningMonitor(s,updated);m.observe(utter('今天有点低落。'))
+    assert not m.queue.empty() and m.queue.get_nowait()[1]['demo_mode'] is True
+    regular=Screening(True);n=ScreeningMonitor(regular,updated);n.observe(utter('今天有点低落。'))
+    assert n.queue.empty()
+
+
+def test_three_confirmed_items_produce_actual_custom_total_and_no_phq_gad_score():
+    s=controller();s.start_demo('fictional-trigger');collect_three(s)
+    view=s.view();scale=view['scales'][0]
+    assert s.stage=='complete' and len(view['scales'])==1
+    assert scale['scale']=='mood_interest' and scale['total']==6 and scale['max_score']==12
+    assert view['demo_mode'] and not view['formal_assessment']
+    assert s.public_status()['demo_progress']['total']==6
+    assert view['trigger_origin']=='manual_demo'
+
+
+def test_demo_never_scores_unconfirmed_or_missing_items():
+    s=controller();s.start_demo('fictional-trigger')
+    s.observe(utter('最近两周低落或提不起兴趣的情况怎么样？','assistant'))
+    s.observe(utter('有时'))
+    assert s.answers=={} and s.view()['scales'][0]['total'] is None
+    s.observe(utter('最近两周低落或提不起兴趣有时，对吗？','assistant'));s.observe(utter('对'))
+    assert len(s.answers)==1 and s.view()['scales'][0]['total'] is None
+
+
+def test_demo_refusal_and_danger_still_override_and_cannot_be_manually_bypassed():
+    for text,stage in [('我不想回答这些问题。','declined'),('我不想活了。','urgent')]:
+        s=controller();s.start_demo('fictional-trigger');s.observe(utter(text))
+        assert s.stage==stage and not s.start_demo('another-trigger') and not s.answers
+
+
+def test_manual_demo_endpoint_is_owner_scoped_and_normal_runtime_cannot_use_it(actors,monkeypatch):
+    a,b=actors;s=controller();u=utter('今天想聊聊。')
+    queue=asyncio.Queue(maxsize=1)
+    api.RUNTIMES[a.uid]=dict(session_id='voice_demo_test',controller=s,queue=queue,
+        transcripts=type('T',(),{'users':{u.key:u}})())
+    try:
+        assert b.request('POST','/api/robot-voice/demo/start').status_code==409
+        assert queue.empty()
+        r=a.request('POST','/api/robot-voice/demo/start');assert r.status_code==200
+        signal=queue.get_nowait();assert signal.evidence_id==u.message_id
+        assert r.json()['trigger_origin']=='manual_demo'
+        monkeypatch.setenv('ROBOT_CARE_COLLECTION_DEMO','false')
+        assert a.request('POST','/api/robot-voice/demo/start').status_code==404
+        assert a.request('POST','/api/robot-voice/demo/reset').status_code==404
+    finally:api.RUNTIMES.pop(a.uid,None)
+
+
+def test_saved_demo_score_has_sources_and_reset_preserves_history(actors):
+    a,b=actors;s=controller();first=utter('今天心情有点低落。');s.observe(first);s.start_demo(first.message_id)
+    entries=[first,*collect_three(s)]
+    sid=a.create('voice_short_demo',started_at=now()).json()['recording_session_id']
+    record_ids=[]
+    for i,e in enumerate(entries,1):
+        response=a.send(sid,i,**e.wire());assert response.status_code==201
+        record_ids.append(response.json()['record_id'])
+    assert a.request('POST',f'/api/robot-records/sessions/{sid}/close',json=dict(ended_at=now(),last_sequence_no=len(entries))).status_code==200
+    attach_sources(a.uid,sid,s,{});store_plan(a.uid,True,s);assert save_result(a.uid,sid,s)
+    result=a.request('GET',f'/api/robot-voice/screening-results/{sid}').json()['result']
+    assert result['demo_mode'] and result['scales'][0]['total']==6
+    assert result['source_status']=='current_original_text'
+    assert b.request('GET',f'/api/robot-voice/screening-results/{sid}').status_code==404
+    with SessionLocal() as db:before=db.query(RecordMessage).count()
+    assert a.request('POST','/api/robot-voice/demo/reset').json()['history_preserved']
+    with SessionLocal() as db:assert db.query(RecordMessage).count()==before
+    assert read_plan(a.uid,True) is None
+    assert a.request('GET',f'/api/robot-voice/screening-results/{sid}').json()['result']['scales'][0]['total']==6
+    # The first frequency answer is entries[2]. Editing it invalidates the score.
+    assert a.request('POST',f'/api/robot-insights/messages/{record_ids[2]}/corrections',json=dict(
+        request_id='edit-demo-answer',base_revision=0,content='频率需要重新确认。')).status_code==201
+    assert a.request('GET',f'/api/robot-voice/screening-results/{sid}').json()['result']['scales'][0]['total'] is None
+
+
+def test_demo_reset_cannot_cancel_an_active_call_or_unresolved_safety_task(actors):
+    a,_=actors;api.ACTIVE.add(a.uid)
+    try:assert a.request('POST','/api/robot-voice/demo/reset').status_code==409
+    finally:api.ACTIVE.discard(a.uid)
+    s=controller();s.observe(utter('我不想活了。'));store_plan(a.uid,True,s)
+    assert a.request('POST','/api/robot-voice/demo/reset').status_code==409
+
+
+def test_public_mode_is_explicit_and_contains_no_credentials(actors,monkeypatch):
+    a,_=actors;r=a.client.get('/api/robot-voice/mode')
+    assert r.status_code==200 and r.json()['mode']=='demo' and r.headers['cache-control']=='no-store'
+    assert 'password' not in r.text and 'token' not in r.text and 'api_key' not in r.text
+    monkeypatch.setenv('ROBOT_CARE_COLLECTION_DEMO','false')
+    assert a.client.get('/api/robot-voice/mode').json()['mode']=='normal'
+
+
+def test_profile_and_results_can_load_concurrently_without_nested_read_locks(actors):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    a,_=actors
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for _ in range(12):
+            barrier=Barrier(2)
+            def read(route):
+                barrier.wait()
+                return a.request('GET','/api/robot-insights/'+route)
+            responses=list(pool.map(read,('profile','assessments')))
+            assert [r.status_code for r in responses]==[200,200]
+            assert responses[1].json()['demo_mode'] is True

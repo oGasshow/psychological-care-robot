@@ -231,21 +231,25 @@ class ReviewWorker:
         return True
 
 
-def public_reviews(uid, is_test, limit=20):
+def public_reviews(uid, is_test, limit=20, *, db=None):
+    if db is not None:return public_reviews_in_db(db,uid,is_test,limit)
+    with transaction() as session:return public_reviews_in_db(session,uid,is_test,limit)
+
+
+def public_reviews_in_db(db, uid, is_test, limit=20):
     messages = {'pending': '通话已保存，等待后台复核。', 'running': '正在后台复核已保存的对话。',
         'retry_wait': '后台复核待重试，不影响已保存的文字和采集进度。',
         'failed': '后台复核暂未完成，可重试；未据此认定不需要进一步了解。',
         'insufficient_data': '已保存信息不足，后续会话将结合历史继续了解。',
         'invalidated': '原话或来源已变化，需要重新复核。',
         'succeeded': '后台复核已完成；未完成的采集任务会在后续会话继续。'}
-    with transaction() as db:
-        rows = db.query(AfterCallReview).join(RecordSession,
-            RecordSession.id == AfterCallReview.session_id).filter(AfterCallReview.owner == uid,
-            RecordSession.user_id == uid, RecordSession.is_test == is_test,
-            RecordSession.state != 'deleted').order_by(AfterCallReview.session_id.desc()).limit(limit).all()
-        return [dict(recording_session_id=row.session_id, state=row.state, attempt=row.attempt,
-            updated_at=row.updated_at, error_code=row.error_code, decision=(row.result or {}).get('decision'),
-            target_scales=(row.result or {}).get('target_scales', []), message=messages[row.state]) for row in rows]
+    rows = db.query(AfterCallReview).join(RecordSession,
+        RecordSession.id == AfterCallReview.session_id).filter(AfterCallReview.owner == uid,
+        RecordSession.user_id == uid, RecordSession.is_test == is_test,
+        RecordSession.state != 'deleted').order_by(AfterCallReview.session_id.desc()).limit(limit).all()
+    return [dict(recording_session_id=row.session_id, state=row.state, attempt=row.attempt,
+        updated_at=row.updated_at, error_code=row.error_code, decision=(row.result or {}).get('decision'),
+        target_scales=(row.result or {}).get('target_scales', []), message=messages[row.state]) for row in rows]
 
 
 def run(stop):

@@ -38,6 +38,9 @@ Set-Location psychological-care-robot
 
 | 脚本 | 用途与数据行为 |
 |---|---|
+| [Open-NormalMode.cmd](../Open-NormalMode.cmd) | 正常模式入口；健康的服务直接打开，保留完整采集与当前数据 |
+| [Open-CollectionDemo.cmd](../Open-CollectionDemo.cmd) | 快速采集演示入口；独立数据库与网页，3项确认后可显示实际合计；见[短演示步骤](operations/collection-demo.md) |
+| [Stop-CollectionDemo.cmd](../Stop-CollectionDemo.cmd) | 仅停止快速演示，正常模式继续运行 |
 | [Resume-Project.cmd](../Resume-Project.cmd) | 继续当前 active_runtime 的数据；日常调试优先使用 |
 | [Start-Presentation.cmd](../Start-Presentation.cmd) | 新建独立演示目录，恢复固定虚构对话和模拟量表，并切换 active_runtime |
 | [Start-Project.cmd](../Start-Project.cmd) | 与固定演示入口相同，会切换到新演示库 |

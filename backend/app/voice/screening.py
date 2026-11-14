@@ -105,6 +105,8 @@ class Screening:
         self.enabled = enabled
         self.notice_version = notice_version
         self.review_mode = 'live'
+        self.demo_mode = False
+        self.trigger_origin = 'context_model'
         self.stage = 'companionship'
         self.signals, self.target_scales, self.decisions = [], [], []
         self.answers, self.pending = {}, None
@@ -166,7 +168,9 @@ class Screening:
         # decision, user stop, danger override, or select arbitrary instruments.
         if not self.enabled or self.stage not in ('companionship','checking_in'):
             return
-        targets = target_scales or collection_targets()
+        targets = target_scales or (['mood_interest'] if self.demo_mode else collection_targets())
+        if self.demo_mode and any(s!='mood_interest' for s in targets):
+            raise ValueError('collection_demo_target_invalid')
         if not ids or not targets or any(s not in ITEMS for s in targets):
             raise ValueError('invalid_concern_signal')
         self.signals = list(dict.fromkeys(ids))
@@ -241,6 +245,16 @@ class Screening:
         return next(((scale, i+1, topic) for scale in self.target_scales
                      for i, topic in enumerate(ITEMS[scale])
                      if f'{scale}:{i+1}' not in self.answers), None)
+
+    def start_demo(self, evidence_id):
+        if not (self.enabled and self.demo_mode and self.stage in ('companionship','waiting_context')):
+            return False
+        if not self.triggered:self.concern([evidence_id],'manual_demo_trigger_v1',['mood_interest'])
+        self.trigger_origin='manual_demo'
+        self.detector='manual_demo_trigger_v1'
+        self.stage,self.review_status='collecting','manual_demo'
+        self.version+=1
+        return True
 
     def observe(self, entry):
         if self.enabled and entry.role == 'assistant' and entry.final:
@@ -362,6 +376,7 @@ class Screening:
                                total=sum(v['value'] for v in values) if complete else None,
                                status='complete_unverified' if complete else 'incomplete', items=values))
         return dict(type='screening.status', stage=self.stage, version=self.version, review_status=self.review_status, review_mode=self.review_mode, scales=scales,
+                    demo_mode=self.demo_mode,trigger_origin=self.trigger_origin,
                     triggered=self.triggered, source='conversation_assisted', verification_status='unverified',
                     protocol='conditional-dialogue-indicators-v1', indicator_version='conversation-indicator-3x5-v1',
                     recall_window='past_two_weeks',
@@ -373,11 +388,16 @@ class Screening:
                     episode_id=self.episode_id,window_end=self.window_end,transport_diagnostics=self.transport_diagnostics)
 
     def public_status(self):
-        return dict(type='screening.status',stage=self.stage,version=self.version,
+        value=dict(type='screening.status',stage=self.stage,version=self.version,
                     review_mode=self.review_mode,
                     triggered=self.triggered,detector_status=self.detector_status,
                     review_status=self.review_status,
                     formal_assessment=False)
+        if self.demo_mode:
+            scale=next((s for s in self.view()['scales'] if s['scale']=='mood_interest'),None)
+            value.update(demo_mode=True,trigger_origin=self.trigger_origin,
+                demo_progress={k:scale[k] for k in ('answered','required','total','max_score')} if scale else None)
+        return value
 
     def instructions(self):
         base = ('你是温和的中文陪伴助手，先倾听回应感受。不诊断，不宣称情绪已稳定，不宣布分数。'
@@ -388,6 +408,11 @@ class Screening:
         if self.window_end:base+=f'本次回顾范围固定为截至{self.window_end}的前两周，跨会话保持同一回顾范围，不混用不同时段。'
         if not self.enabled:
             return base+'当前会话未启用后台信息采集，只自然陪伴；用户问及功能时如实说明当前未启用，不说系统永远不会主动了解。'
+        if self.demo_mode:
+            base+=('当前为隔离的快速采集演示，只演示3项自定义对话指标，不能称为PHQ-9/GAD-7或正式量表。'
+                '简短回应后进入后台指定的话题，不长篇安慰或追问无关背景。每项必须明确最近两周，'
+                '用户给出频率后立即自然复述核对，确认后直接接下一项；不宣布或猜测分数。'
+                '频率可为从不、较少、有时、经常、几乎总是。仍尊重拒绝，危险表达优先安全支持。')
         if self.end_after_response:
             return base+'用户已明确表示暂时没有其他想聊的内容。简短温暖告别，不再提问，不总结分数或诊断。'
         base += ('用户问“什么情况下会主动了解、是否会发起问卷”时，说明：会结合前面的具体交流，'
@@ -449,7 +474,7 @@ def save_result(uid, sid, controller):
     with SessionLocal() as db:
         view=controller.view()
         db.merge(CollectionTrace(session_id=sid,owner=uid,payload={k:view[k] for k in
-            ('stage','triggered','detector_status','detector_version','review_status','review_mode','protocol','purchase_notice_version',
+            ('stage','triggered','detector_status','detector_version','review_status','review_mode','demo_mode','trigger_origin','protocol','purchase_notice_version',
              'observations','history_session_ids','history_danger_unresolved','episode_id','window_end','transport_diagnostics')}))
         if has_collected_items(view):
             db.merge(ScreeningResult(session_id=sid, owner=uid, payload=view))

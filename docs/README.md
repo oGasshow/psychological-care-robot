@@ -9,6 +9,7 @@
 | 文档 | 内容 |
 |---|---|
 | [快速开始](getting-started.md) | 安装、首次启动、保留数据继续运行、页面入口 |
+| [正常与快速演示入口](operations/collection-demo.md) | 两个独立入口、3项实际计分、简短演示台词与数据隔离 |
 | [语音与终端接口](features/voice.md) | Windows 语音、豆包配置、终端适配与连接恢复 |
 | [逐句情绪与危险表达](features/sentiment.md) | 用户分类、独立提示、版本与重试 |
 | [对话辅助量表采集](features/screening.md) | 触发、持久任务、候选、确认与跨会话依据 |

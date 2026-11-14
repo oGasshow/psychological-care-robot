@@ -18,6 +18,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
         payload=deepcopy(saved.payload) if saved and saved.owner==owner else None
         progress=trace.payload if trace and trace.owner==owner else {}
         row=dict(recording_session_id=session.id,started_at=session.started_at,is_test=bool(session.is_test),
+            demo_mode=bool((payload or progress).get('demo_mode')),trigger_origin=(payload or progress).get('trigger_origin'),
             source='conversation_assisted',formal_assessment=False,stage=progress.get('stage','not_recorded'),
             detector_status=progress.get('detector_status','not_recorded'),scales=[],
             observations=progress.get('observations',[]),history_session_ids=progress.get('history_session_ids',[]),

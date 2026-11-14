@@ -43,6 +43,7 @@ class ScreeningMonitor:
             data['turns']=old+data['turns'][-16:]
             data['source_snapshot_hash']=hashlib.sha256(json.dumps(data['turns'],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         data['historical_danger']=self.controller.history_danger_unresolved
+        if self.controller.demo_mode:data['demo_mode']=True
         return data
 
     def observe(self, entry):
@@ -65,7 +66,7 @@ class ScreeningMonitor:
         post_session=self.controller.review_mode=='post_session'
         if post_session and not self.controller.triggered:
             return
-        minimum=1 if self.controller.stage=='collecting' else (2 if post_session else 1 if self.history else 3)
+        minimum=1 if self.controller.stage=='collecting' or self.controller.demo_mode else (2 if post_session else 1 if self.history else 3)
         if (not self.controller.enabled or self.provider != 'doubao_realtime'
                 or self.controller.stage not in ('companionship', 'waiting_context','checking_in','reviewing','collecting')
                 or self.user_count < minimum

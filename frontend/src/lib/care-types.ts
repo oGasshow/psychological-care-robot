@@ -62,11 +62,14 @@ export interface CollectionScale {
 }
 export interface CollectionObservation { display_name?: string; scale: string; item: number; status: string }
 export interface CollectionResult {
+  demo_mode?: boolean; trigger_origin?: string;
+  history_danger_unresolved?: boolean;
   recording_session_id: number; started_at: string; is_test: boolean; stage: string; detector_status: string;
   history_session_ids?: number[]; observations?: CollectionObservation[]; source_status: string; scales?: CollectionScale[];
 }
 export interface CollectionPlan { needs_collection: boolean; status: string; scales: CollectionScale[] }
 export interface AssessmentsData {
+  demo_mode?: boolean;
   after_call_review_mode?: string; after_call_reviews?: AfterCallReview[];
   collection_plan?: CollectionPlan; conversation_collections?: CollectionResult[];
   provider: string; status?: string; provider_status?: string; source_kind?: string; items?: Assessment[];
@@ -117,11 +120,14 @@ export interface ReportData {
 }
 export interface SegaStatus { message: string; probe_allowed: boolean; installed: boolean }
 export interface SegaProbe { status: string; device?: string }
-export interface VoiceConfig { enabled: boolean; conditional_collection_enabled: boolean; is_test: boolean; message: string; concern_review_mode?: string }
+export interface VoiceConfig { enabled: boolean; conditional_collection_enabled: boolean; is_test: boolean; message: string; concern_review_mode?: string; demo_mode?: boolean }
+export interface DeploymentMode { mode:'normal'|'demo'|'unavailable';name:string;demo_mode:boolean;description?:string }
 export interface ScreeningStatus {
   type: 'screening.status'; stage: string; version: number; triggered: boolean; detector_status: string;
   review_status: string; error_code?: string;
   review_mode?: string;
+  demo_mode?: boolean;trigger_origin?:string;
+  demo_progress?: {answered:number;required:number;total:number|null;max_score:number}|null;
 }
 export interface RecordingReceipt {
   type: 'records.saved' | 'records.pending' | 'records.error'; recording_session_id?: number; pending?: number; message?: string;

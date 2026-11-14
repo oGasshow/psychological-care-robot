@@ -49,6 +49,7 @@ def restore(controller,data):
     controller.target_scales=list(data.get('target_scales',[]))
     controller.signals=list(data.get('signal_evidence',[]))
     controller.detector=data.get('detector_version')
+    controller.trigger_origin=data.get('trigger_origin','context_model')
     controller.answers=deepcopy(data.get('answers',{}))
     controller.history_danger_unresolved|=data.get('history_danger_unresolved',False)
     if data['status']=='declined':controller.stage='declined'
@@ -80,13 +81,14 @@ def store_plan_in_db(db,uid,is_test,controller):
     payload=dict(needs_collection=not complete,status=status,episode_id=controller.episode_id,
         window_end=controller.window_end,target_scales=controller.target_scales,answers=controller.answers,
         signal_evidence=controller.signals,history_danger_unresolved=controller.history_danger_unresolved or controller.stage=='urgent',
+        demo_mode=controller.demo_mode,trigger_origin=controller.trigger_origin,
         detector_version=controller.detector,
         history_session_ids=controller.history_session_ids,observations=controller.observations,formal_assessment=False,
         completed_at=now() if complete else None)
     db.merge(CollectionPlan(key=key(uid,is_test),owner=uid,payload=deepcopy(payload),updated_at=now()))
 
-def public_plan(uid,is_test):
-    data=read_plan(uid,is_test)
+def public_plan(uid,is_test,*,db=None):
+    data=read_plan_in_db(db,uid,is_test) if db is not None else read_plan(uid,is_test)
     if not data:return dict(needs_collection=False,status='no_task',scales=[])
     return dict(needs_collection=data['needs_collection'],status=data['status'],episode_id=data['episode_id'],
         window_end=data['window_end'],formal_assessment=False,

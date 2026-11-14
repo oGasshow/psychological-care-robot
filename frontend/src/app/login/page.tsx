@@ -1,4 +1,5 @@
 'use client';
+import DeploymentModeNotice from '@/components/deployment-mode';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -79,7 +80,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-purple-50 to-blue-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-purple-50 to-blue-50 flex items-center justify-center px-4 py-20">
       {/* 返回首页按钮 */}
       <button
         onClick={() => router.push('/')}
@@ -90,7 +91,7 @@ export default function LoginPage() {
       </button>
 
       {/* 登录/注册卡片 */}
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md"><DeploymentModeNotice/>
         <div className="bg-white rounded-3xl shadow-2xl p-8">
           {/* Logo 和标题 */}
           <div className="text-center mb-8">

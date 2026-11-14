@@ -4,6 +4,7 @@ Credentials stay in runtime/access.json (gitignored and excluded from delivery).
 No reset/drop/delete command is provided. Always choose a new runtime directory.
 """
 import argparse
+import hashlib
 from contextlib import closing
 import json
 import os
@@ -266,10 +267,32 @@ def prepare(root,empty=False,presentation=False):
 def environment(root,cfg):
     from dotenv import dotenv_values
     analysis_engine=os.getenv('ROBOT_CARE_ANALYSIS_ENGINE') or dotenv_values(BACKEND/'.env').get('ROBOT_CARE_ANALYSIS_ENGINE') or 'rules'
-    return dict(os.environ,PYTHONUTF8='1',APP_ENV='development',DATABASE_URL='sqlite:///'+Path(cfg['database']).as_posix(),
+    env=dict(os.environ,PYTHONUTF8='1',APP_ENV='development',DATABASE_URL='sqlite:///'+Path(cfg['database']).as_posix(),
         SECRET_KEY=cfg['secret'],SQLITE_BUSY_MS='1000',MODELSCOPE_API_KEY='',ROBOT_CARE_ANALYSIS_ENGINE=analysis_engine,ROBOT_UPLOAD_POLICY='after_close',
         ROBOT_CARE_ASSESSMENT_PROVIDER='fixture' if cfg.get('seed_sample_data',True) else 'disabled',ROBOT_CARE_DEMO_DATABASE='true',ROBOT_CARE_FIXTURE_FILE=cfg['fixture'],
         ROBOT_CARE_SIMULATOR_ENABLED='true')
+    if cfg.get('collection_demo'):
+        env.update(ROBOT_CARE_COLLECTION_DEMO='true',ROBOT_CARE_RUNTIME_ROLE='collection_demo',
+            ROBOT_CARE_GUIDED_SCREENING_ENABLED='true',ROBOT_CARE_PURCHASE_NOTICE_VERSION='collection-demo-v1',
+            ROBOT_CARE_CONCERN_REVIEW_MODE='live',ROBOT_CARE_VOICE_ENABLED='true')
+    else:
+        env.update(ROBOT_CARE_COLLECTION_DEMO='false',ROBOT_CARE_RUNTIME_ROLE='normal')
+    return env
+
+
+def frontend_fingerprint():
+    files=[]
+    for folder in ('src','public'):
+        base=PROJECT/'frontend'/folder
+        if base.exists():files.extend(p for p in base.rglob('*') if p.is_file())
+    for name in ('package.json','package-lock.json','next.config.ts','tsconfig.json','tsconfig.demo.json'):
+        file=PROJECT/'frontend'/name
+        if file.exists():files.append(file)
+    digest=hashlib.sha256()
+    for file in sorted(files):
+        digest.update(file.relative_to(PROJECT/'frontend').as_posix().encode())
+        digest.update(hashlib.sha256(file.read_bytes()).digest())
+    return digest.hexdigest()
 
 def wait_backend(base,proc):
     for _ in range(200):
@@ -284,6 +307,11 @@ def wait_backend(base,proc):
     raise RuntimeError('demo_backend_start_timeout')
 
 def start(root,cfg,frontend=True):
+    build_dir=cfg.get('frontend_dist_dir','.next')
+    if build_dir not in ('.next','.next-collection-demo'):
+        raise ValueError('invalid_frontend_build_directory')
+    if cfg.get('collection_demo') and build_dir!='.next-collection-demo':
+        raise ValueError('collection_demo_requires_separate_frontend_build')
     if (root/'pids.json').exists():
         raise ValueError('Demo already has process records; stop it first')
     root=root.resolve()
@@ -347,8 +375,8 @@ def start(root,cfg,frontend=True):
         worker=launch('worker',[sys.executable,'-m','app.care.worker','--instance-id',root.name],BACKEND)
         if frontend:
             node=shutil_which('node')
-            frontend_env=dict(env,BACKEND_URL=base,NEXT_TELEMETRY_DISABLED='1')
-            manifest=PROJECT/'frontend/.next/routes-manifest.json'
+            frontend_env=dict(env,BACKEND_URL=base,NEXT_TELEMETRY_DISABLED='1',ROBOT_CARE_FRONTEND_DIST_DIR=build_dir)
+            manifest=PROJECT/'frontend'/build_dir/'routes-manifest.json'
             target=base+'/api/:path*'
             rebuild=True
             if manifest.exists():
@@ -358,11 +386,14 @@ def start(root,cfg,frontend=True):
                     rebuild=not any(r.get('destination')==target for r in entries)
                 except (ValueError,TypeError):
                     pass
+            source_hash=frontend_fingerprint()
+            rebuild=rebuild or cfg.get('frontend_source_hash')!=source_hash
             if rebuild:
                 with open(root/'frontend_build.log','ab') as log:
                     completed=subprocess.run([node,str(PROJECT/'frontend/node_modules/next/dist/bin/next'),'build'],cwd=PROJECT/'frontend',env=frontend_env,stdout=log,stderr=subprocess.STDOUT,creationflags=NO_WINDOW)
                 if completed.returncode:
                     raise RuntimeError('demo_frontend_build_failed')
+            cfg['frontend_source_hash']=source_hash
             cmd=[node,str(PROJECT/'frontend/node_modules/next/dist/bin/next'),'start','--hostname','127.0.0.1','--port',str(cfg['frontend_port'])]
             launch('frontend',cmd,PROJECT/'frontend',frontend_env)
         # Give the persistent worker a bounded opportunity to finish seed analysis.

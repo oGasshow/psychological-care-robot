@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
+const buildDir=process.env.ROBOT_CARE_FRONTEND_DIST_DIR||'.next';
+if(!['.next','.next-collection-demo'].includes(buildDir))throw new Error('Invalid frontend build directory.');
 const nextConfig: NextConfig = {
+  distDir: buildDir,
+  typescript: {tsconfigPath:buildDir==='.next'?'tsconfig.json':'tsconfig.demo.json'},
   /* config options here */
   devIndicators: false,  // 关闭构建指示器
   reactCompiler: true,

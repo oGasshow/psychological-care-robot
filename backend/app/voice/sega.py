@@ -57,6 +57,8 @@ def session_status(uid,sid):
             input_status='available_experimental_features' if row else 'missing_aligned_audio_and_auxiliary_features')
 
 async def analyze_features(uid,sid,request:Request):
+    from .screening_policy import collection_demo_enabled
+    if collection_demo_enabled():raise HTTPException(409,'sega_not_in_short_collection_demo')
     with SessionLocal() as db:owned(db,sid,uid)
     # Incremental bound avoids loading a hostile request body before checking size.
     data=bytearray()
