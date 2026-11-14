@@ -244,10 +244,13 @@ def test_speech_report_provider_validates_real_shape_and_falls_back(actors,monke
     a,_=actors;seed(a);dto=preview(a)
     monkeypatch.setenv('ROBOT_CARE_REPORT_PROVIDER','doubao_realtime')
     monkeypatch.setenv('DOUBAO_VOICE_API_KEY','fictional-key')
-    async def good(*args):return json.dumps(output())
+    calls=[]
+    async def good(*args):
+        calls.append(args[1]);return json.dumps(output()['overview'])
     monkeypatch.setattr(upstream,'structured_report',good)
     result=generate(a,dto).json()['narrative']
     assert result['mode']=='model' and result['provider']=='doubao_realtime'
+    assert len(calls)==2 and all(set(schema['properties'])=={'text','evidence_ids'} for schema in calls)
     async def bad(*args):return json.dumps(dict(overview='malformed'))
     monkeypatch.setattr(upstream,'structured_report',bad)
     assert generate(a,dto).json()['narrative']['reason_code']=='model_output_rejected'
