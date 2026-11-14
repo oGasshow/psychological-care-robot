@@ -70,6 +70,7 @@ export interface CollectionResult {
 }
 export interface CollectionPlan { needs_collection: boolean; status: string; scales: CollectionScale[] }
 export interface AssessmentsData {
+  scale_summaries?: ScaleSummary[];
   demo_mode?: boolean;
   after_call_review_mode?: string; after_call_reviews?: AfterCallReview[];
   collection_plan?: CollectionPlan; conversation_collections?: CollectionResult[];
@@ -86,6 +87,7 @@ export interface ReportEvidence {
   input_revision: number; is_test: boolean; text: string; truncated: boolean;
 }
 export interface ReportFact {
+  name?:string;score?:number|null;max_score?:number;answered?:number;item_count?:number;meaning?:string;reference?:{title:string;url:string};
   id: string; kind: string; is_test?: boolean; active_days?: number; classified_count?: number; user_text_count?: number;
 }
 export interface ReportCoverage {
@@ -109,11 +111,13 @@ export interface ReportFacts {
 }
 export interface NarrativeSection { text: string; evidence_ids?: string[] }
 export interface NarrativeContent {
+  scale_readings?: NarrativeSection[];
   overview?: NarrativeSection; changes?: NarrativeSection[]; topics?: NarrativeSection[];
   conversation_suggestions?: NarrativeSection[]; limitations?: NarrativeSection[];
 }
 export interface ReportNarrative { mode: string; reason_code?: string; content?: NarrativeContent; prompt_version?: string; model?: string }
 export interface ReportData {
+  scale_summaries?: ScaleSummary[];
   scope: ReportScope; generated_at: string; anonymous_id: string; data_as_of: string;
   schema_version: string; source_snapshot_hash: string; narrative: ReportNarrative;
   report_facts?: ReportFacts; danger_notice?: DangerNoticeData; conversation_assessments?: CollectionResult[];
@@ -146,3 +150,10 @@ export type VoiceEvent = AudioDelta | ScreeningStatus | RecordingReceipt
   | { type: 'screening.result_failed' | 'error'; message: string }
   | { type: 'status'; state: string; message: string }
   | { type: 'dialogue.finished' | 'session.ready' | 'playback.clear' | 'screening.policy_applied' | 'screening.detector_checked' | 'playback.status' };
+
+export interface ScaleSummary {
+ id:string;scale_id:string;name:string;kind:string;item_count:number;max_score:number;answered:number;score:number|null;
+ status:string;recall_window:string;purpose:string;meaning:string;limitation:string;reference_band:string|null;item9_attention:boolean;
+ bands:{min:number;max:number;label:string}[];reference:{title:string;url:string;doi:string}|null;
+ items:{item:number;topic:string;points:number|null;answer:string|null;record_ids:number[]}[];recording_session_ids:number[];
+}

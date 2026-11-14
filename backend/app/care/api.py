@@ -200,7 +200,9 @@ def get_assessments(uid=Depends(owner)):
         from ..voice.api import test_data
         from ..voice.after_call import public_reviews,enabled as after_call_policy
         from ..voice.screening_policy import collection_demo_enabled
-        return dict(**assessments(db,uid),conversation_collections=collection_history(db,uid),conversation_limit=100,
+        collections=collection_history(db,uid)
+        from .scale_catalog import summarize
+        return dict(**assessments(db,uid),scale_summaries=summarize(collections),conversation_collections=collections,conversation_limit=100,
             collection_plan=public_plan(uid,test_data(),db=db),after_call_reviews=public_reviews(uid,test_data(),db=db),
             demo_mode=collection_demo_enabled(),
             after_call_review_mode='post_session' if after_call_policy() else 'disabled')
@@ -218,11 +220,6 @@ def get_trends(time_from:Annotated[UTCText|None,Query(alias='from')]=None,time_t
 def preview_report(body:ReportBody,uid=Depends(owner)):
     with transaction(True) as db:
         dto=report(db,uid,body.scope)
-        from .collection_history import collection_history
-        selected=body.scope.session_ids or list({m['recording_session_id'] for m in dto.get('messages',[])})
-        dto['conversation_assessments']=[item for item in collection_history(db,uid,session_ids=selected,
-            allowed_record_ids={m['record_id'] for m in dto.get('messages',[])},limit=None) if item['scales']]
-        # These unverified scores are kept out of model facts and formal scale trends.
         return dto
 
 @router.post('/reports/narrative')

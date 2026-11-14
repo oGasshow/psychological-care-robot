@@ -67,7 +67,7 @@ class ScreeningMonitor:
             self.schedule(force=True)
 
     def schedule(self, *, force=False):
-        if (self.controller.demo_mode and self.controller.stage=='collecting'
+        if (self.controller.streamlined and self.controller.stage=='collecting'
                 and self.controller.question_key is None and self.controller.pending is None):
             return
         post_session=self.controller.review_mode=='post_session'

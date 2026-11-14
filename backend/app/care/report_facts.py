@@ -129,7 +129,8 @@ def build_facts(db, uid, scope, dto):
                       incomplete_sessions=any(not s['is_complete'] for s in dto['sessions']),
                       sampled=len(excerpts) < len(candidates), evidence_count=len(excerpts),
                       eligible_candidate_count=len(candidates), danger_excluded_count=len(danger_ids)))
-    snapshot = dict(owner=uid, scope=dto['scope'], sessions=[{k:v for k,v in s.items() if k!='data_as_of'} for s in dto['sessions']],
+    facts.extend({**reading,'instrument_kind':reading['kind'],'kind':'scale_result'} for reading in dto.get('scale_summaries',[]))
+    snapshot = dict(scales=dto.get('scale_summaries',[]),collections=dto.get('conversation_assessments',[]),owner=uid, scope=dto['scope'], sessions=[{k:v for k,v in s.items() if k!='data_as_of'} for s in dto['sessions']],
                     messages=dto['messages'], sources=dto['source_references'],
                     emotion_groups=dto['emotion_groups'], danger_notice=dto['danger_notice'],
                     previous_sources=(previous or {}).get('source_references', []),
@@ -140,8 +141,8 @@ def build_facts(db, uid, scope, dto):
     nature='mixed' if len(test_flags)>1 else 'test_only' if True in test_flags else 'non_test_only' if False in test_flags else 'empty'
     return dict(report_facts_version='report-facts-v1', source_snapshot_hash=digest, scope=dto['scope'],
                 comparison_scope=comparison_scope, data_as_of=dto['data_as_of'], data_nature=nature,
-                coverage=coverage, groups=groups, topics=topics, evidence=excerpts, facts=facts,
-                evidence_selection=facts[-1], daily_status='available' if days else 'long_window',
+                scale_summaries=dto.get('scale_summaries',[]),coverage=coverage, groups=groups, topics=topics, evidence=excerpts, facts=facts,
+                evidence_selection=next(f for f in facts if f['id']=='limitations'), daily_status='available' if days else 'long_window',
                 comparison_reason=comparison_reason, window_days=day_count,
                 latest_record_at=max((m['occurred_at'] for m in messages), default=None),
                 eligible_user_text_count=len(by_id))

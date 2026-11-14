@@ -310,6 +310,7 @@ async def live(ws:WebSocket):
         controller=Screening(policy.enabled,policy.notice_version)
         controller.review_mode=policy.review_mode
         controller.demo_mode=policy.demo_mode and test_data()
+        controller.direct_collection=policy.enabled
         uid=await asyncio.to_thread(authenticate_token,auth.token)
         if uid in ACTIVE:
             await emit(dict(type='error',code='voice_session_active',message='已有语音会话正在进行，请先结束另一处会话。'));return

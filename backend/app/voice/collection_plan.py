@@ -45,10 +45,10 @@ def read_plan_in_db(db,uid,is_test):
 
 def restore(controller,data):
     if not data:return
-    completed_demo=bool(controller.demo_mode and not data.get('needs_collection') and data.get('status')=='complete'
+    completed_task=bool(controller.streamlined and not data.get('needs_collection') and data.get('status')=='complete'
         and not data.get('history_danger_unresolved')
         and (datetime.now(timezone(timedelta(hours=8))).date()-datetime.fromisoformat(data['window_end']).date()).days<14)
-    if not data.get('needs_collection') and not completed_demo:return
+    if not data.get('needs_collection') and not completed_task:return
     controller.episode_id=data['episode_id'];controller.window_end=data['window_end']
     controller.target_scales=list(data.get('target_scales',[]))
     controller.signals=list(data.get('signal_evidence',[]))
@@ -56,7 +56,7 @@ def restore(controller,data):
     controller.trigger_origin=data.get('trigger_origin','context_model')
     controller.answers=deepcopy(data.get('answers',{}))
     controller.history_danger_unresolved|=data.get('history_danger_unresolved',False)
-    if completed_demo:controller.stage='complete'
+    if completed_task:controller.stage='complete'
     elif data['status']=='declined':controller.stage='declined'
     elif data['status'] in ('urgent','checking_in') or controller.history_danger_unresolved:controller.stage='checking_in'
     else:controller.stage='waiting_context'
@@ -81,7 +81,7 @@ def store_plan_in_db(db,uid,is_test,controller):
     if not controller.episode_id:controller.episode_id=uuid.uuid4().hex
     if not controller.window_end:
         controller.window_end=datetime.now(timezone(timedelta(hours=8))).date().isoformat()
-    complete=bool(controller.target_scales) and all(f'{s}:{i+1}' in controller.answers for s in controller.target_scales for i in range(len(ITEMS[s])))
+    complete=bool(controller.target_scales) and controller.stage not in ('urgent','checking_in') and all(f'{s}:{i+1}' in controller.answers for s in controller.target_scales for i in range(len(ITEMS[s])))
     status='complete' if complete else controller.stage
     payload=dict(needs_collection=not complete,status=status,episode_id=controller.episode_id,
         window_end=controller.window_end,target_scales=controller.target_scales,answers=controller.answers,
@@ -91,7 +91,7 @@ def store_plan_in_db(db,uid,is_test,controller):
         history_session_ids=controller.history_session_ids,observations=controller.observations,formal_assessment=False,
         completed_at=now() if complete else None)
     db.merge(CollectionPlan(key=key(uid,is_test),owner=uid,payload=deepcopy(payload),updated_at=now()))
-    if controller.demo_mode and getattr(controller,'collection_external_session_id',None):
+    if controller.streamlined and getattr(controller,'collection_external_session_id',None):
         from .demo_reconciliation import register_in_db
         register_in_db(db,uid,controller.collection_external_session_id,controller)
 

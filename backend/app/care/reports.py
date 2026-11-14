@@ -139,6 +139,15 @@ def report(db,uid,scope):
         messages=[dict(record_id=row.id,recording_session_id=row.recording_session_id,sequence_no=row.sequence_no,role=row.role,
             text_status=row.text_status,playback_status=row.playback_status,occurred_at=row.occurred_at,received_at=row.received_at,is_test=source_flags[row.id],
             **{k:v for k,v in effective(db,row).items() if k not in ('record_id','recording_session_id')}) for row in rows])
+    from .collection_history import collection_history
+    from .scale_catalog import summarize
+    selected_ids=scope.session_ids or [s.id for s in sessions]
+    dto['conversation_assessments']=[item for item in collection_history(db,uid,session_ids=selected_ids,
+        allowed_record_ids={m['record_id'] for m in dto['messages']},limit=None) if item['scales']]
+    dto['scale_summaries']=summarize(dto['conversation_assessments'])
+    # Legacy external assessments are separate from conversation-assisted scales.
+    if any(s['score'] is not None for s in dto['scale_summaries']):
+        dto['warnings']=[w for w in dto['warnings'] if w not in ('未关联量表，未纳入本报告。','量表数据未启用、无记录或查询失败；未补造分数。')]
     from .report_facts import build_facts,rules_narrative
     dto['report_facts']=build_facts(db,uid,scope,dto)
     dto['source_snapshot_hash']=dto['report_facts']['source_snapshot_hash']
