@@ -368,6 +368,9 @@ class Screening:
         if self.stage in ('companionship', 'waiting_context', 'complete') or self.review_completed:
             self.user_turn_waiting_for_reply=True
         if safety(text)['safety_signal'] == 'explicit_danger_expression':
+            if self.stage=='complete':
+                self.answers,self.target_scales,self.signals={},[],[]
+                self.episode_id,self.window_end=None,None
             self.stage, self.pending = 'urgent', None
             self.history_danger_unresolved=True
             self.target_scales=list(dict.fromkeys([*self.target_scales,'PHQ-9']))

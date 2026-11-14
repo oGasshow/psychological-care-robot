@@ -6,7 +6,7 @@ from sqlalchemy import Column,Integer,String,JSON,ForeignKey
 from ..database import Base,SessionLocal
 from ..robot_records import now,RecordSession,RecordMessage
 from ..care.models import InputRevision
-from .screening import ITEMS,SCALE_LABELS
+from .screening import ITEMS,SCALE_LABELS,OPTIONS_BY_SCALE
 
 class CollectionPlan(Base):
     __tablename__='robot_voice_collection_plans'
@@ -44,7 +44,11 @@ def read_plan_in_db(db,uid,is_test):
     return data
 
 def restore(controller,data):
-    if not data or not data.get('needs_collection'):return
+    if not data:return
+    completed_demo=bool(controller.demo_mode and not data.get('needs_collection') and data.get('status')=='complete'
+        and not data.get('history_danger_unresolved')
+        and (datetime.now(timezone(timedelta(hours=8))).date()-datetime.fromisoformat(data['window_end']).date()).days<14)
+    if not data.get('needs_collection') and not completed_demo:return
     controller.episode_id=data['episode_id'];controller.window_end=data['window_end']
     controller.target_scales=list(data.get('target_scales',[]))
     controller.signals=list(data.get('signal_evidence',[]))
@@ -52,7 +56,8 @@ def restore(controller,data):
     controller.trigger_origin=data.get('trigger_origin','context_model')
     controller.answers=deepcopy(data.get('answers',{}))
     controller.history_danger_unresolved|=data.get('history_danger_unresolved',False)
-    if data['status']=='declined':controller.stage='declined'
+    if completed_demo:controller.stage='complete'
+    elif data['status']=='declined':controller.stage='declined'
     elif data['status'] in ('urgent','checking_in') or controller.history_danger_unresolved:controller.stage='checking_in'
     else:controller.stage='waiting_context'
 
@@ -95,7 +100,7 @@ def public_plan(uid,is_test,*,db=None):
     if not data:return dict(needs_collection=False,status='no_task',scales=[])
     return dict(needs_collection=data['needs_collection'],status=data['status'],episode_id=data['episode_id'],
         window_end=data['window_end'],formal_assessment=False,
-        scales=[dict(scale=s,**({'display_name':SCALE_LABELS[s]} if s not in ('PHQ-9','GAD-7') else {}),
+        scales=[dict(scale=s,**(dict(total=sum(data['answers'][f'{s}:{i+1}']['value'] for i in range(len(ITEMS[s]))) if all(f'{s}:{i+1}' in data['answers'] for i in range(len(ITEMS[s]))) else None,max_score=len(ITEMS[s])*(len(OPTIONS_BY_SCALE[s])-1)) if data.get('demo_mode') else {}),**({'display_name':SCALE_LABELS[s]} if s not in ('PHQ-9','GAD-7') else {}),
             answered=sum(f'{s}:{i+1}' in data['answers'] for i in range(len(ITEMS[s]))),required=len(ITEMS[s]))
             for s in data['target_scales']])
 

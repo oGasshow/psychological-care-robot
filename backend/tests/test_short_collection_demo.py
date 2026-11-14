@@ -383,3 +383,20 @@ def test_background_refusal_does_not_create_empty_score(actors):
     assert a.request('POST',f'/api/robot-records/sessions/{sid}/close',json=dict(ended_at=now(),last_sequence_no=1)).status_code==200
     assert scan()==1 and read_plan(a.uid,True)['status']=='declined'
     with SessionLocal() as db:assert db.get(ScreeningResult,sid) is None
+
+
+
+def test_completed_demo_survives_new_call_without_restarting_collection(actors):
+    from app.voice.collection_plan import restore
+    a,_=actors;s=controller();s.start_demo('trigger');entries=collect_three(s)
+    sid=a.create('voice_complete_resume',started_at=now()).json()['recording_session_id']
+    for i,e in enumerate(entries,1):assert a.send(sid,i,**e.wire()).status_code==201
+    attach_sources(a.uid,sid,s,{});store_plan(a.uid,True,s)
+    resumed=controller();restore(resumed,read_plan(a.uid,True))
+    assert resumed.stage=='complete' and resumed.current() is None
+    assert resumed.public_status()['demo_progress']['total']==6
+    assert not resumed.start_demo('new-trigger')
+    resumed.observe(utter('今天还是有点低落。'))
+    assert resumed.stage=='complete' and len(resumed.answers)==3
+    resumed.observe(utter('我不想活了。'))
+    assert resumed.stage=='urgent' and not resumed.answers and resumed.episode_id is None
