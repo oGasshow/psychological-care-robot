@@ -47,7 +47,7 @@ TOPIC_CUES = {
               ('注意','集中','阅读'),('动作','说话','坐立','缓慢'),('死','伤害','活着')],
     'GAD-7': [('紧张','焦虑','坐立不安'),('控制','停不下','停止','担忧','担心'),('各种','不同事情','担忧','担心'),
               ('放松',),('安坐','坐立'),('烦躁','急躁','烦恼'),('害怕','可怕','发生')],
-    'mood_interest': [('低落','提不起兴趣','没兴趣','心情'),('精力','疲倦','行动','做事'),('自责','没希望','希望','评价自己')],
+    'mood_interest': [('低落','提不起兴趣','没兴趣','兴致','没乐趣','心情'),('精力','疲倦','疲惫','乏力','没力气','没有力气','没精神','没有精神','提不起劲','没有动力','没动力','行动','做事'),('自责','责怪自己','没希望','希望','评价自己','自我评价','没价值','没有价值','一无是处','自己很差','没盼头','没有盼头')],
     'worry_anxiety': [('担忧','反复担忧','停不下来','担心','忧虑'),('紧张','焦虑','心慌'),('放松','安定','平静')],
     'stress_load': [('掌控','控制不了','安排不过来'),('压力','负担','应付不了'),('压力影响','生活安排','工作学习')],
     'sleep_wellbeing': [('入睡','睡不着','睡眠'),('夜里醒','早醒','醒来'),('白天疲惫','白天状态','睡眠影响')],
@@ -94,6 +94,14 @@ def explicit_frequency(text, options):
     canonical=re.sub(r'^(大概|大约)','',canonical)
     canonical=re.sub(r'(会这样|会如此|这样|出现|有这种情况|吧|的)$','',canonical)
     matches=[i for i,option in enumerate(options) if canonical==option]
+    return matches[0] if len(matches)==1 else None
+
+
+def demo_question_item(text):
+    """Route only explicit project indicator questions, independent of ask order."""
+    if not re.search(r'两周|十四天',text) or not re.search(r'[？?]|吗|呢|如何|怎么样|有没有|多少|频繁',text):return None
+    question_text=re.split(r'两周|十四天',text)[-1]
+    matches=[i+1 for i,cues in enumerate(TOPIC_CUES['mood_interest']) if any(cue in question_text for cue in cues)]
     return matches[0] if len(matches)==1 else None
 
 class ScreeningResult(Base):
@@ -273,22 +281,16 @@ class Screening:
         question=None
         for entry in turns:
             if not entry.final:continue
-            item=self.current()
-            if item is None:break
+            if not self.current():break
             if entry.role=='assistant':
-                question=(entry if re.search(r'两周|十四天',entry.text)
-                    and any(cue in entry.text for cue in TOPIC_CUES[item[0]][item[1]-1])
-                    and re.search(r'[？?]|吗|呢|如何|怎么样|有没有|多少|频繁',entry.text) else None)
+                index=demo_question_item(entry.text)
+                question=entry if index and f'mood_interest:{index}' not in self.answers else None
             elif entry.role=='user':
                 if safety(entry.text)['safety_signal']=='explicit_danger_expression' or declines_collection(entry.text,question_pending=bool(question)):
-                    self.seen.discard(entry.message_id)
-                    self.observe(entry)
-                    break
-                if question and explicit_frequency(entry.text,OPTIONS_BY_SCALE[item[0]]) is not None:
-                    self.question_context=question;self.question_key=f'{item[0]}:{item[1]}'
-                    # The turn was previously observed while waiting for detection.
-                    self.seen.discard(entry.message_id)
-                    self.observe(entry)
+                    self.seen.discard(entry.message_id);self.observe(entry);break
+                if question and explicit_frequency(entry.text,CUSTOM_OPTIONS) is not None:
+                    self.question_context=question;self.question_key=f'mood_interest:{demo_question_item(question.text)}'
+                    self.seen.discard(entry.message_id);self.observe(entry)
                 question=None
         return len(self.answers)!=before
 
@@ -312,16 +314,22 @@ class Screening:
                 self.version+=1
             if ((self.stage=='complete' or self.review_completed) and re.search(r'还有.{0,12}[想要需要].{0,6}[聊说]|有什么.{0,12}(想聊|想说|要聊)|如果.{0,8}没有.{0,8}(到这里|先这样)', entry.text)):
                 self.closing_question_asked=True
-            item=self.current() if self.stage=='collecting' else None
+            item=self.current() if self.stage=='collecting' or (self.demo_mode and self.triggered and self.stage=='waiting_context') else None
             if item:
                 scale,index,_=item
-                if (re.search(r'两周|十四天',entry.text) and any(cue in entry.text for cue in TOPIC_CUES[scale][index-1])
+                if self.demo_mode:
+                    asked=demo_question_item(entry.text)
+                    self.question_key=f'mood_interest:{asked}' if asked and f'mood_interest:{asked}' not in self.answers else None
+                    self.question_context=entry if self.question_key else None
+                    if asked and f'mood_interest:{asked}' in self.answers:
+                        self.last_repeated_topic=ITEMS['mood_interest'][asked-1];self.version+=1
+                    elif asked:self.last_repeated_topic=None
+                elif (re.search(r'两周|十四天',entry.text) and any(cue in entry.text for cue in TOPIC_CUES[scale][index-1])
                         and re.search(r'[？?]|吗|呢|如何|怎么样|有没有|多少|频繁',entry.text)):
                     self.question_key=f'{scale}:{index}'
                     self.question_context=entry
                 elif re.search(r'[？?]|吗|呢|怎么样|有没有',entry.text) and not any(cue in entry.text for cue in TOPIC_CUES[scale][index-1]):
-                    self.question_key=None
-                    self.question_context=None
+                    self.question_key=None;self.question_context=None
             if (self.pending and item and OPTIONS_BY_SCALE[item[0]][self.pending[0]] in entry.text
                     and re.search(r'两周|十四天',entry.text)
                     and any(cue in entry.text for cue in TOPIC_CUES[item[0]][item[1]-1])
@@ -372,9 +380,9 @@ class Screening:
                 if re.search(r'先停|休息一下|不舒服|有点难受|崩溃|很痛苦|撑不住|喘不过气|恐慌', text):
                     self.action('pause')
                 elif (self.demo_mode and self.question_context is not None
-                      and self.question_key==f'{self.current()[0]}:{self.current()[1]}'
+                      and self.question_key and self.question_key not in self.answers
                       and explicit_frequency(text,OPTIONS_BY_SCALE[self.current()[0]]) is not None):
-                    scale,index,_=self.current()
+                    scale,index=self.question_key.split(':');index=int(index)
                     value=explicit_frequency(text,OPTIONS_BY_SCALE[scale])
                     self.detector_status='checked'
                     context_id=self.question_context.message_id
@@ -406,7 +414,7 @@ class Screening:
                     canonical = re.sub(r'^(回顾这两周是|这两周应该是|大概|大约|应该是|就是)', '', canonical)
                     canonical = re.sub(r'吧$', '', canonical)
                     matches = [i for i, option in enumerate(OPTIONS_BY_SCALE[self.current()[0]]) if option == canonical]
-                    if len(matches) == 1:
+                    if len(matches) == 1 and (not self.demo_mode or self.question_key==f'{self.current()[0]}:{self.current()[1]}'):
                         self.pending = (matches[0], entry.message_id)
         if (self.stage in ('companionship','waiting_context') and not self.context_checkin_asked
                 and self.user_turn_waiting_for_reply
@@ -467,6 +475,14 @@ class Screening:
                 '简短回应后进入后台指定的话题，不长篇安慰或追问无关背景。每项必须明确最近两周，'
                 '用户明确回答频率后简短回应并等待后台切换下一项，不再逐项要求回答“对”。只有含糊或无法确定频率时才补问；不宣布或猜测分数。'
                 '严格按后台当前话题逐项交流，不自行改成睡眠、食欲等其他问题。频率可为从不、较少、有时、经常、几乎总是。仍尊重拒绝，危险表达优先安全支持。')
+        if self.triggered and self.answers:
+            completed=[ITEMS[scale][int(index)-1] for key in self.answers for scale,index in [key.split(':')]]
+            remaining=[topic for scale in self.target_scales for i,topic in enumerate(ITEMS[scale],1) if f'{scale}:{i}' not in self.answers]
+            base+=('后台已保存的方向：'+'、'.join(completed)+'。这些方向已完成，不重复询问它们的频率，也不重新确认。'
+                '尚缺的方向：'+('、'.join(remaining) or '无')+'。')
+            if remaining:base+='下一项只了解“'+remaining[0]+'”，不要重问已完成方向，不跳到未安排的条目。'
+            if self.demo_mode and getattr(self,'last_repeated_topic',None):
+                base+='刚才重复询问了已保存的“'+self.last_repeated_topic+'”。请立即纠正后续话题，不能再问这一方向或把其回答当成其他条目。'
         if self.end_after_response:
             return base+'用户已明确表示暂时没有其他想聊的内容。简短温暖告别，不再提问，不总结分数或诊断。'
         base += ('用户问“什么情况下会主动了解、是否会发起问卷”时，说明：会结合前面的具体交流，'

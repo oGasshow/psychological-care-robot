@@ -225,3 +225,47 @@ def test_explicit_answer_before_delayed_trigger_is_recovered():
     assert s.reconcile_demo_turns([q,a])
     assert s.answers['mood_interest:1']['value']==3
     assert not s.reconcile_demo_turns([q,a])
+
+
+def test_completed_question_is_not_reasked_or_mapped_to_next_item():
+    s=controller();s.start_demo('trigger')
+    for entry in [utter('最近两周心情低落的情况怎么样？','assistant'),utter('经常')]:s.observe(entry)
+    for entry in [utter('最近两周这种没兴趣的状态经常出现吗？','assistant'),utter('经常')]:s.observe(entry)
+    assert len(s.answers)==1 and s.pending is None and s.current()[1]==2
+
+
+def test_out_of_order_self_worth_answer_counts_for_third_item():
+    s=controller();s.start_demo('trigger')
+    for entry in [utter('最近两周低落出现多少？','assistant'),utter('经常'),
+        utter('最近两周会不会经常觉得自己没价值或者总责怪自己？','assistant'),utter('经常出现。')]:s.observe(entry)
+    assert set(s.answers)=={'mood_interest:1','mood_interest:3'}
+    assert s.answers['mood_interest:3']['value']==3 and s.current()[1]==2
+    assert s.view()['scales'][0]['answered']==2
+    from app.voice.screening import demo_question_item
+    assert demo_question_item('自责确实让人难受。最近两周精力不足的情况怎么样？')==2
+
+
+def test_cross_call_progress_prompt_and_order_independent_persistence(actors):
+    from app.voice.collection_plan import restore
+    a,_=actors
+    s=controller();s.start_demo('trigger')
+    for n,pairs in enumerate([
+        [('最近两周心情低落的情况怎么样？','assistant'),('经常','user')],
+        [('最近两周会不会觉得自己没价值或者总责怪自己？','assistant'),('经常出现。','user')],
+        [('最近两周精力不足或做事提不起劲的情况怎么样？','assistant'),('较少','user')]],1):
+        if n>1:
+            s=controller();restore(s,read_plan(a.uid,True))
+            prompt=s.instructions()
+            assert '这些方向已完成，不重复询问' in prompt and '下一项只了解“精力与行动受到影响”' in prompt
+            s.stage='collecting'
+        sid=a.create('voice_resume_'+str(n),started_at=now()).json()['recording_session_id']
+        entries=[]
+        for text,role in pairs:
+            e=utter(text,role);s.observe(e);entries.append(e)
+        for i,e in enumerate(entries,1):assert a.send(sid,i,**e.wire()).status_code==201
+        assert a.request('POST',f'/api/robot-records/sessions/{sid}/close',json=dict(ended_at=now(),last_sequence_no=len(entries))).status_code==200
+        attach_sources(a.uid,sid,s,{});store_plan(a.uid,True,s);assert save_result(a.uid,sid,s)
+        result=a.request('GET','/api/robot-insights/assessments').json()
+        assert result['collection_plan']['scales'][0]['answered']==n
+        assert result['conversation_collections'][0]['source_status']=='current_original_text'
+    assert s.view()['scales'][0]['total']==7 and not read_plan(a.uid,True)['needs_collection']
