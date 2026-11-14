@@ -1,5 +1,6 @@
 """Grounded natural frequency candidates; a candidate never scores by itself."""
 import json
+from .grounding import source_span
 from typing import Annotated
 from pydantic import BaseModel,ConfigDict,Field
 
@@ -38,22 +39,27 @@ def validate(raw,data):
     if not c.relevant:return c.model_dump()
     def grounded(identifier,quote,role=None):
         t=turns.get(identifier)
-        return bool(t and quote and quote in t['text'] and (role is None or t['role']==role))
+        return bool(t and source_span(quote,t['text']) is not None and (role is None or t['role']==role))
     if not grounded(c.answer_id,c.answer_quote,'user') or not grounded(c.question_id,c.question_quote,'assistant'):
         raise ValueError('ungrounded_answer_candidate')
     if data.get('target'):
-        from .screening import TOPIC_CUES
+        from .screening import TOPIC_CUES,explicit_frequency
         target=data['target']
         if not any(cue in c.question_quote+c.answer_quote for cue in TOPIC_CUES[target['scale']][target['item']-1]):
             raise ValueError('generic_conversation_is_not_item_evidence')
+        explicit=explicit_frequency(c.frequency_quote,target.get('response_options',[]))
+        if c.value>=0 and explicit is not None and explicit!=c.value:
+            raise ValueError('candidate_frequency_mismatch')
         if c.value >= len(target.get('response_options',[])):
             raise ValueError('candidate_value_out_of_range')
     if c.answer_id!=data['latest_user_id']:raise ValueError('stale_answer_candidate')
     if c.value>=0:
         import re
         if (not grounded(c.window_id,c.window_quote) or not re.search(r'两周|十四天|14天',c.window_quote)
-                or not c.frequency_quote or c.frequency_quote not in turns[c.answer_id]['text']):
+                or source_span(c.frequency_quote,turns[c.answer_id]['text']) is None):
             raise ValueError('missing_frequency_or_window')
+    for field,id_field in [('question_quote','question_id'),('answer_quote','answer_id'),('window_quote','window_id'),('frequency_quote','answer_id')]:
+        if getattr(c,field):setattr(c,field,source_span(getattr(c,field),turns[getattr(c,id_field)]['text']))
     return c.model_dump()
 
 async def extract(data,item):

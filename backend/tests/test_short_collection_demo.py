@@ -95,11 +95,11 @@ def test_three_confirmed_items_produce_actual_custom_total_and_no_phq_gad_score(
     assert view['trigger_origin']=='manual_demo'
 
 
-def test_demo_never_scores_unconfirmed_or_missing_items():
+def test_demo_scores_explicit_answers_but_never_fills_missing_items():
     s=controller();s.start_demo('fictional-trigger')
     s.observe(utter('最近两周低落或提不起兴趣的情况怎么样？','assistant'))
     s.observe(utter('有时'))
-    assert s.answers=={} and s.view()['scales'][0]['total'] is None
+    assert len(s.answers)==1 and s.view()['scales'][0]['total'] is None
     s.observe(utter('最近两周低落或提不起兴趣有时，对吗？','assistant'));s.observe(utter('对'))
     assert len(s.answers)==1 and s.view()['scales'][0]['total'] is None
 
@@ -181,3 +181,47 @@ def test_profile_and_results_can_load_concurrently_without_nested_read_locks(act
             responses=list(pool.map(read,('profile','assessments')))
             assert [r.status_code for r in responses]==[200,200]
             assert responses[1].json()['demo_mode'] is True
+
+
+@pytest.mark.parametrize('answer,value',[('经常。',3),('经常这样。',3),('有时会这样。',2),('较少',1)])
+def test_demo_spoken_frequency_is_recorded_without_second_yes(answer,value):
+    s=controller();s.start_demo('trigger')
+    question=utter('最近两周，心情低落或没兴趣的情况怎么样？','assistant');s.observe(question)
+    source=utter(answer);s.observe(source)
+    assert s.answers['mood_interest:1']['value']==value
+    assert s.answers['mood_interest:1']['evidence_ids']==[source.message_id]
+    assert s.answers['mood_interest:1']['question_context_id']==question.message_id
+    assert s.current()[1]==2
+
+
+@pytest.mark.parametrize('question,answer',[
+    ('今天心情低落吗？','经常'),('最近两周睡眠怎么样？','有时'),
+    ('最近两周心情低落的频率怎样？','可能经常吧'),('最近两周心情低落的频率怎样？','会的')])
+def test_demo_never_guesses_missing_window_topic_or_frequency(question,answer):
+    s=controller();s.start_demo('trigger');s.observe(utter(question,'assistant'));s.observe(utter(answer))
+    assert not s.answers
+
+
+def test_typography_matching_keeps_actual_source_span_and_rejects_paraphrase():
+    from app.voice.grounding import source_span
+    assert source_span('最近心情低落做事没兴趣','最近心情低落，做事没兴趣。')=='最近心情低落，做事没兴趣'
+    assert source_span('每天都心情低落','最近心情低落。') is None
+
+
+def test_direct_answer_does_not_get_extracted_for_next_item():
+    async def updated():pass
+    s=controller();s.start_demo('trigger');m=ScreeningMonitor(s,updated)
+    q=utter('最近两周心情低落的情况怎么样？','assistant');s.observe(q);m.observe(q)
+    source=utter('经常这样。');s.observe(source);m.last_error_code='answer_candidate_invalid';m.observe(source)
+    assert m.queue.empty() and m.last_error_code is None and s.current()[1]==2
+
+
+def test_explicit_answer_before_delayed_trigger_is_recovered():
+    s=controller()
+    q=utter('最近两周心情低落的情况怎么样？','assistant');a=utter('经常这样。')
+    s.observe(q);s.observe(a)
+    assert not s.answers
+    s.start_demo('trigger')
+    assert s.reconcile_demo_turns([q,a])
+    assert s.answers['mood_interest:1']['value']==3
+    assert not s.reconcile_demo_turns([q,a])

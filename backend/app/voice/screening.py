@@ -87,6 +87,15 @@ def accepts_review_transition(text):
         r'聊到这里|先这样(吧)?|嗯[，, ]*(好|可以)|^(好|好的|可以|行|嗯)[。！!，,？? ]*$',
         normalized))
 
+
+def explicit_frequency(text, options):
+    """Only explicit option wording, including simple spoken endings."""
+    canonical=re.sub(r'[。！!，,\s]','',text)
+    canonical=re.sub(r'^(大概|大约)','',canonical)
+    canonical=re.sub(r'(会这样|会如此|这样|出现|有这种情况|吧|的)$','',canonical)
+    matches=[i for i,option in enumerate(options) if canonical==option]
+    return matches[0] if len(matches)==1 else None
+
 class ScreeningResult(Base):
     __tablename__='robot_voice_screening_results'
     session_id=Column(Integer,ForeignKey('robot_record_sessions.id',ondelete='CASCADE'),primary_key=True)
@@ -113,6 +122,7 @@ class Screening:
         self.version, self.seen = 0, set()
         self.confirmation_asked = False
         self.question_key = None
+        self.question_context = None
         self.confirmation_context_id = None
         self.detector = None
         self.detector_status = 'not_checked'
@@ -256,6 +266,32 @@ class Screening:
         self.version+=1
         return True
 
+    def reconcile_demo_turns(self, turns):
+        """Recover explicit Q/A that arrived before the asynchronous trigger."""
+        if not self.demo_mode or self.stage!='collecting':return False
+        before=len(self.answers)
+        question=None
+        for entry in turns:
+            if not entry.final:continue
+            item=self.current()
+            if item is None:break
+            if entry.role=='assistant':
+                question=(entry if re.search(r'两周|十四天',entry.text)
+                    and any(cue in entry.text for cue in TOPIC_CUES[item[0]][item[1]-1])
+                    and re.search(r'[？?]|吗|呢|如何|怎么样|有没有|多少|频繁',entry.text) else None)
+            elif entry.role=='user':
+                if safety(entry.text)['safety_signal']=='explicit_danger_expression' or declines_collection(entry.text,question_pending=bool(question)):
+                    self.seen.discard(entry.message_id)
+                    self.observe(entry)
+                    break
+                if question and explicit_frequency(entry.text,OPTIONS_BY_SCALE[item[0]]) is not None:
+                    self.question_context=question;self.question_key=f'{item[0]}:{item[1]}'
+                    # The turn was previously observed while waiting for detection.
+                    self.seen.discard(entry.message_id)
+                    self.observe(entry)
+                question=None
+        return len(self.answers)!=before
+
     def observe(self, entry):
         if self.enabled and entry.role == 'assistant' and entry.final:
             if self.review_completed and self.user_turn_waiting_for_reply:
@@ -282,6 +318,10 @@ class Screening:
                 if (re.search(r'两周|十四天',entry.text) and any(cue in entry.text for cue in TOPIC_CUES[scale][index-1])
                         and re.search(r'[？?]|吗|呢|如何|怎么样|有没有|多少|频繁',entry.text)):
                     self.question_key=f'{scale}:{index}'
+                    self.question_context=entry
+                elif re.search(r'[？?]|吗|呢|怎么样|有没有',entry.text) and not any(cue in entry.text for cue in TOPIC_CUES[scale][index-1]):
+                    self.question_key=None
+                    self.question_context=None
             if (self.pending and item and OPTIONS_BY_SCALE[item[0]][self.pending[0]] in entry.text
                     and re.search(r'两周|十四天',entry.text)
                     and any(cue in entry.text for cue in TOPIC_CUES[item[0]][item[1]-1])
@@ -331,6 +371,20 @@ class Screening:
             elif self.stage == 'collecting':
                 if re.search(r'先停|休息一下|不舒服|有点难受|崩溃|很痛苦|撑不住|喘不过气|恐慌', text):
                     self.action('pause')
+                elif (self.demo_mode and self.question_context is not None
+                      and self.question_key==f'{self.current()[0]}:{self.current()[1]}'
+                      and explicit_frequency(text,OPTIONS_BY_SCALE[self.current()[0]]) is not None):
+                    scale,index,_=self.current()
+                    value=explicit_frequency(text,OPTIONS_BY_SCALE[scale])
+                    self.detector_status='checked'
+                    context_id=self.question_context.message_id
+                    self.answers[f'{scale}:{index}']=dict(value=value,evidence_ids=[entry.message_id],
+                        confirmation_context_id=context_id,question_context_id=context_id,window_context_id=context_id,
+                        confirmation_method='explicit_frequency_answer',extraction_version='explicit-demo-frequency-v1')
+                    self.pending,self.confirmation_asked,self.candidate_context=None,False,None
+                    self.question_key,self.question_context=None,None
+                    self.observations=[o for o in self.observations if (o['scale'],o['item'])!=(scale,index)]
+                    if not self.current():self.stage='complete'
                 elif (self.pending and self.confirmation_asked
                         and re.fullmatch(r'(是的|对|没错|确认|嗯，对)[。！! ]*', text)):
                     scale, index, _ = self.current()
@@ -411,8 +465,8 @@ class Screening:
         if self.demo_mode:
             base+=('当前为隔离的快速采集演示，只演示3项自定义对话指标，不能称为PHQ-9/GAD-7或正式量表。'
                 '简短回应后进入后台指定的话题，不长篇安慰或追问无关背景。每项必须明确最近两周，'
-                '用户给出频率后立即自然复述核对，确认后直接接下一项；不宣布或猜测分数。'
-                '频率可为从不、较少、有时、经常、几乎总是。仍尊重拒绝，危险表达优先安全支持。')
+                '用户明确回答频率后简短回应并等待后台切换下一项，不再逐项要求回答“对”。只有含糊或无法确定频率时才补问；不宣布或猜测分数。'
+                '严格按后台当前话题逐项交流，不自行改成睡眠、食欲等其他问题。频率可为从不、较少、有时、经常、几乎总是。仍尊重拒绝，危险表达优先安全支持。')
         if self.end_after_response:
             return base+'用户已明确表示暂时没有其他想聊的内容。简短温暖告别，不再提问，不总结分数或诊断。'
         base += ('用户问“什么情况下会主动了解、是否会发起问卷”时，说明：会结合前面的具体交流，'

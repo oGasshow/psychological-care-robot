@@ -55,6 +55,10 @@ class ScreeningMonitor:
         if entry.role == 'user':
             self.user_count += 1
             self.latest_user_id = entry.message_id
+            if any(entry.message_id in answer.get('evidence_ids',[]) for answer in self.controller.answers.values()):
+                self.last_error_code=None
+                self.checked_count=self.user_count
+                return
             self.schedule(force=self.controller.review_status in ('running','pending'))
         elif (self.controller.stage in ('waiting_context','checking_in','reviewing')
               and self.user_count and self.scheduled_revision != self.revision):
@@ -63,6 +67,9 @@ class ScreeningMonitor:
             self.schedule(force=True)
 
     def schedule(self, *, force=False):
+        if (self.controller.demo_mode and self.controller.stage=='collecting'
+                and self.controller.question_key is None and self.controller.pending is None):
+            return
         post_session=self.controller.review_mode=='post_session'
         if post_session and not self.controller.triggered:
             return
@@ -110,6 +117,7 @@ class ScreeningMonitor:
                              and self.snapshot()['source_snapshot_hash']==data['source_snapshot_hash']
                              and not (self.controller.history_danger_unresolved and count<2))
                     changed = self.controller.apply_decision(result, fresh=fresh)
+                    if fresh and self.controller.reconcile_demo_turns(self.turns):changed=True
                     if changed:
                         await self.update_policy()
                     if self.emit:

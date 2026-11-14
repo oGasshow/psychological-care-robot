@@ -25,7 +25,7 @@ try{
   await page.waitForFunction(()=>document.querySelectorAll('.voice-line.user').length>0);
   await page.getByRole('button',{name:'手动启动演示（留痕）'}).click();
   await page.getByTestId('demo-live-total').waitFor();
-  assert((await page.getByTestId('demo-live-total').innerText()).includes('6/12'));proof.checks.push('three_real_confirmations_sum_to_six');
+  assert((await page.getByTestId('demo-live-total').innerText()).includes('6/12'));proof.checks.push('three_explicit_answers_sum_to_six');
   assert((await page.getByTestId('short-collection-demo').innerText()).includes('人工触发'));proof.checks.push('manual_trigger_provenance');
   await page.getByRole('button',{name:'结束并保存',exact:true}).click();
   await page.getByRole('link',{name:'查看本次记录',exact:true}).waitFor();proof.checks.push('voice_records_saved');

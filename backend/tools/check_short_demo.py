@@ -68,6 +68,8 @@ def main():
     try:
         if (root/'pids.json').exists():
             assert demo_care.stop(root,cfg)['stopped_recorded_demo_processes']
+        cfg.update(backend_port=demo_care.port(),frontend_port=demo_care.port())
+        demo_care.write_json(root/'access.json',cfg)
         demo_care.start(root,cfg)
         output=ROOT/'runtime/short-demo-ui-evidence'
         env=dict(os.environ,CARE_BASE_URL=f'http://127.0.0.1:{cfg["frontend_port"]}',EVIDENCE_DIR=str(output),

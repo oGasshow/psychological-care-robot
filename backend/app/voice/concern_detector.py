@@ -8,6 +8,7 @@ import json
 import re
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
+from .grounding import source_span
 from .screening_policy import collection_targets,collection_demo_enabled
 
 VERSION = 'context-followup-v4-combined-targets'
@@ -63,8 +64,10 @@ def validate(raw, data):
     demo=bool(data.get('demo_mode') and collection_demo_enabled())
     users = {t['message_id']: t['text'] for t in data['turns'] if t['role'] == 'user'}
     for item in result.evidence:
-        if item.message_id not in users or item.quote not in users[item.message_id]:
+        span=source_span(item.quote,users.get(item.message_id,''))
+        if span is None:
             raise ValueError('ungrounded_concern_evidence')
+        item.quote=span
     if len(set(result.target_scales)) != len(result.target_scales):
         raise ValueError('duplicate_scale')
     if not set(result.target_scales) <= set(collection_targets()):
@@ -108,8 +111,10 @@ def validate(raw, data):
         raise ValueError('non_triggering_decision_has_scales')
     if result.transition_ready:
         latest = users.get(data['latest_user_id'], '')
-        if not result.latest_user_quote or result.latest_user_quote not in latest:
+        span=source_span(result.latest_user_quote,latest)
+        if span is None:
             raise ValueError('readiness_not_current')
+        result.latest_user_quote=span
     return {**result.model_dump(), 'detector_version': VERSION,
             'source_snapshot_hash': data['source_snapshot_hash'], 'latest_user_id': data['latest_user_id']}
 
@@ -124,8 +129,19 @@ async def assess(data):
             '仍须排除否认、转述、假设和纯功能询问；普通闲聊不触发。'
             '当前并非明显痛苦且可以自然继续交流时可transition_ready=true，不需要“准备好了”等口令；'
             '危险、拒绝或明显痛苦时必须false。演示不作诊断，不猜测分数。')
-    raw = await structured_tool(prompt, Decision.model_json_schema(), data,
-                                name='decide_conversation_followup',
-                                description='提交是否需要进一步了解及原话依据，不作临床诊断。',
-                                trigger_asset='decision_trigger.wav')
-    return validate(raw, data)
+    aliases={t['message_id']:f'T{i+1}' for i,t in enumerate(data['turns'])}
+    originals={v:k for k,v in aliases.items()}
+    payload={**data,'turns':[{**t,'message_id':aliases[t['message_id']]} for t in data['turns']],
+        'latest_user_id':aliases.get(data['latest_user_id'])}
+    prompt+='\n只使用输入中的T编号。提交实际字段值，不能返回schema定义。原话复制自相应T编号，不改写。无信号时target_scales和evidence均为空；transition_ready=false时latest_user_quote可为空。'
+    for attempt in range(2):
+        raw=await structured_tool(prompt+('\n上次核验失败，请核对原话、T编号、目标和实际JSON字段。' if attempt else ''),
+            Decision.model_json_schema(),payload,name='decide_conversation_followup',
+            description='提交实际线索判断及T编号原话，不返回schema定义。',trigger_asset='decision_trigger.wav')
+        try:
+            result=validate(raw,payload)
+            for evidence in result['evidence']:evidence['message_id']=originals[evidence['message_id']]
+            result['latest_user_id']=data['latest_user_id']
+            return result
+        except (ValueError,KeyError):
+            if attempt:raise

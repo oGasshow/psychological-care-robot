@@ -31,7 +31,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
             valid=True
             references=[]
             for scale in payload.get('scales',[]):
-                for answer in scale.get('items',[]):
+                for index,answer in enumerate(scale.get('items',[])):
                     if not answer:continue
                     messages,source_valid=answer_records(db,owner,session.is_test,answer)
                     valid&=source_valid
@@ -40,9 +40,17 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                         if answer.get('source_refs') else {m.external_message_id:m for m in messages})
                     user_refs=[by_external.get(identifier) for identifier in answer.get('evidence_ids',[])]
                     context=by_external.get(answer.get('confirmation_context_id'))
-                    if (len(user_refs)<2 or any(m is None or m.role!='user' or m.text_status!='completed' for m in user_refs)
+                    direct=answer.get('confirmation_method')=='explicit_frequency_answer'
+                    if (len(user_refs)<(1 if direct else 2) or any(m is None or m.role!='user' or m.text_status!='completed' for m in user_refs)
                             or context is None or context.role!='assistant' or context.text_status!='completed'):
                         valid=False
+                    if direct and user_refs and user_refs[0] and context:
+                        from ..voice.screening import explicit_frequency,OPTIONS_BY_SCALE,TOPIC_CUES
+                        import re
+                        valid&=bool(row['demo_mode'] and scale['scale']=='mood_interest'
+                            and explicit_frequency(user_refs[0].content,OPTIONS_BY_SCALE[scale['scale']])==answer['value']
+                            and re.search(r'两周|十四天',context.content)
+                            and any(cue in context.content for cue in TOPIC_CUES[scale['scale']][index]))
                     linked=[m.id for m in [*user_refs,context] if m is not None]
                     if allowed_record_ids is not None and not set(linked)<=allowed_record_ids:valid=False
                     references.extend(linked)
