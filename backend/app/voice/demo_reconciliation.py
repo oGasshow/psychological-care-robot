@@ -36,7 +36,7 @@ def register(uid,external,controller):
 def scan(limit=100):
     if not collection_demo_enabled():return 0
     from .collection_plan import CollectionPlan,read_plan_in_db,restore,store_plan_in_db
-    from .screening import Screening,CollectionTrace,ScreeningResult
+    from .screening import Screening,CollectionTrace,ScreeningResult,has_collected_items
     from .after_call import has_open_call
     changed=0
     with transaction(True) as db:
@@ -85,7 +85,7 @@ def scan(limit=100):
                     view={**trace.payload,**view,'transport_diagnostics':trace.payload.get('transport_diagnostics',{})}
                 view['automatic_saved_answer_review']=True
                 db.merge(CollectionTrace(session_id=target.id,owner=job.owner,payload=view))
-                db.merge(ScreeningResult(session_id=target.id,owner=job.owner,payload=view))
+                if has_collected_items(view):db.merge(ScreeningResult(session_id=target.id,owner=job.owner,payload=view))
                 changed+=1
             job.state='reviewed'
     return changed

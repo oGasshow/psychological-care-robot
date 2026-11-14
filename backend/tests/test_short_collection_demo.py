@@ -368,3 +368,18 @@ def test_unclear_answer_requests_clarification_instead_of_silently_stalling():
 def test_ending_call_keeps_task_and_does_not_restart_questions():
     s=controller();s.start_demo('trigger');s.observe(utter('好的，那我们结束对话吧。'))
     assert s.end_after_response and '不再提问' in s.instructions() and s.triggered
+
+
+
+def test_background_refusal_does_not_create_empty_score(actors):
+    from app.voice.demo_reconciliation import scan,register
+    from app.voice.screening import ScreeningResult
+    from app.robot_records import RecordSession
+    a,_=actors;s=controller();s.start_demo('trigger');store_plan(a.uid,True,s)
+    sid=a.create('voice_background_refusal',started_at=now()).json()['recording_session_id']
+    with SessionLocal() as db:external=db.get(RecordSession,sid).external_session_id
+    register(a.uid,external,s)
+    e=utter('我不想回答这些问题。');assert a.send(sid,1,**e.wire()).status_code==201
+    assert a.request('POST',f'/api/robot-records/sessions/{sid}/close',json=dict(ended_at=now(),last_sequence_no=1)).status_code==200
+    assert scan()==1 and read_plan(a.uid,True)['status']=='declined'
+    with SessionLocal() as db:assert db.get(ScreeningResult,sid) is None
