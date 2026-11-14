@@ -256,6 +256,8 @@ def run(stop):
     worker = ReviewWorker()
     while not stop.is_set():
         try:
+            from .demo_reconciliation import scan as reconcile_demo
+            reconcile_demo()
             worker.scan()
             processed = worker.step()
         except Exception:

@@ -269,3 +269,102 @@ def test_cross_call_progress_prompt_and_order_independent_persistence(actors):
         assert result['collection_plan']['scales'][0]['answered']==n
         assert result['conversation_collections'][0]['source_status']=='current_original_text'
     assert s.view()['scales'][0]['total']==7 and not read_plan(a.uid,True)['needs_collection']
+
+
+@pytest.mark.parametrize('answer,value',[('偶尔',1),('时不时',2),('常常',3),('从来没有',0)])
+def test_natural_frequency_synonyms_have_auditable_mapping(answer,value):
+    s=controller();s.start_demo('trigger');s.observe(utter('最近两周心情低落的情况怎么样？','assistant'));s.observe(utter(answer))
+    assert s.answers['mood_interest:1']['value']==value
+
+
+def test_yes_requires_one_explicit_frequency_option_in_question():
+    from app.voice.screening import frequency_answer
+    assert frequency_answer('是的。',CUSTOM_OPTIONS,'最近两周低落经常出现吗？')==3
+    assert frequency_answer('是的。',CUSTOM_OPTIONS,'最近两周低落不是经常出现吧？') is None
+    assert frequency_answer('是的。',CUSTOM_OPTIONS,'最近两周低落经常还是有时出现？') is None
+    assert frequency_answer('会的',CUSTOM_OPTIONS,'最近两周会低落吗？') is None
+
+
+def test_durable_review_recovers_without_manual_script_and_is_idempotent(actors):
+    from app.voice.demo_reconciliation import scan,register,DemoAnswerReview
+    a,_=actors;s=controller();s.start_demo('trigger');store_plan(a.uid,True,s)
+    sid=a.create('voice_durable_demo',started_at=now()).json()['recording_session_id']
+    from app.robot_records import RecordSession
+    with SessionLocal() as db:external=db.get(RecordSession,sid).external_session_id
+    register(a.uid,external,s)
+    pairs=[('最近两周心情低落经常出现吗？','assistant'),('是的。','user'),
+        ('刚才聊到低落。最近两周会不会觉得自己没价值？','assistant'),('常常','user'),
+        ('最近两周做事没精力的情况怎么样？','assistant'),('偶尔','user')]
+    entries=[utter(text,role) for text,role in pairs]
+    for i,e in enumerate(entries,1):assert a.send(sid,i,**e.wire()).status_code==201
+    # An uploaded but still-open call is never reconciled.
+    assert scan()==0 and not read_plan(a.uid,True)['answers']
+    assert a.request('POST',f'/api/robot-records/sessions/{sid}/close',json=dict(ended_at=now(),last_sequence_no=len(entries))).status_code==200
+    assert scan()==1
+    result=a.request('GET','/api/robot-insights/assessments').json()
+    assert result['collection_plan']['status']=='complete'
+    saved=result['conversation_collections'][0]
+    assert saved['scales'][0]['total']==7 and saved['source_status']=='current_original_text'
+    assert scan()==0
+    with SessionLocal() as db:assert db.get(DemoAnswerReview,external).state=='complete'
+
+
+def test_plan_and_receipt_are_committed_together(actors):
+    from app.voice.demo_reconciliation import DemoAnswerReview
+    a,_=actors;s=controller();s.start_demo('trigger');s.collection_external_session_id='voice_atomic_demo'
+    store_plan(a.uid,True,s)
+    with SessionLocal() as db:
+        receipt=db.get(DemoAnswerReview,'voice_atomic_demo')
+        assert receipt.owner==a.uid and receipt.episode_id==read_plan(a.uid,True)['episode_id']
+
+
+def test_durable_review_never_resumes_declined_task(actors):
+    from app.voice.demo_reconciliation import scan
+    a,_=actors;s=controller();s.start_demo('trigger');s.action('decline');store_plan(a.uid,True,s)
+    assert scan()==0 and read_plan(a.uid,True)['status']=='declined'
+
+
+@pytest.mark.parametrize('question',['最近两周心情很好的情况经常吗？','最近两周精力充沛的情况经常吗？','最近两周评价自己的情况经常吗？'])
+def test_positive_or_unspecified_direction_is_never_scored_as_distress(question):
+    from app.voice.screening import demo_question_item
+    assert demo_question_item(question) is None
+
+
+def test_receipt_waits_for_live_call_and_obeys_recall_window(actors):
+    from app.voice.demo_reconciliation import scan,register,DemoAnswerReview
+    from app.voice.after_call import touch_live_call,end_live_call
+    from app.robot_records import RecordSession
+    a,_=actors;s=controller();s.start_demo('trigger');store_plan(a.uid,True,s)
+    sid=a.create('voice_receipt_lease',started_at=now()).json()['recording_session_id']
+    with SessionLocal() as db:external=db.get(RecordSession,sid).external_session_id
+    register(a.uid,external,s)
+    entries=[utter('最近两周心情低落的情况怎么样？','assistant'),utter('经常')]
+    for i,e in enumerate(entries,1):assert a.send(sid,i,**e.wire()).status_code==201
+    assert a.request('POST',f'/api/robot-records/sessions/{sid}/close',json=dict(ended_at=now(),last_sequence_no=2)).status_code==200
+    touch_live_call(a.uid,True,'voice_other_call')
+    assert scan()==0
+    end_live_call(a.uid,True,'voice_other_call')
+    with SessionLocal() as db:
+        row=db.get(DemoAnswerReview,external);row.window_end='2000-01-01';db.commit()
+    assert scan()==0
+    with SessionLocal() as db:
+        row=db.get(DemoAnswerReview,external);row.window_end=s.window_end;db.commit()
+    assert scan()==1 and len(read_plan(a.uid,True)['answers'])==1
+
+
+def test_reconciliation_stops_on_refusal_without_guessing_following_answers():
+    s=controller();s.start_demo('trigger')
+    turns=[utter('我不想回答这些问题。'),utter('最近两周心情低落的情况怎么样？','assistant'),utter('经常')]
+    assert not s.reconcile_demo_turns(turns) and s.stage=='declined' and not s.answers
+
+
+
+def test_unclear_answer_requests_clarification_instead_of_silently_stalling():
+    s=controller();s.start_demo('trigger');s.observe(utter('最近两周心情低落的情况怎么样？','assistant'))
+    version=s.version;s.observe(utter('不太确定。'))
+    assert s.version>version and not s.answers and '请温和补问一次' in s.instructions()
+
+
+def test_ending_call_keeps_task_and_does_not_restart_questions():
+    s=controller();s.start_demo('trigger');s.observe(utter('好的，那我们结束对话吧。'))
+    assert s.end_after_response and '不再提问' in s.instructions() and s.triggered

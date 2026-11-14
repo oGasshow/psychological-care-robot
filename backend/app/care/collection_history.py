@@ -24,6 +24,11 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
             observations=progress.get('observations',[]),history_session_ids=progress.get('history_session_ids',[]),
             history_danger_unresolved=progress.get('history_danger_unresolved',False),
             source_status='no_saved_collection',verification_status='unverified')
+        if row['demo_mode']:
+            from ..voice.demo_reconciliation import DemoAnswerReview
+            job=db.get(DemoAnswerReview,session.external_session_id)
+            if job and job.owner==owner:
+                row['saved_answer_review']=dict(state=job.state,updated_at=job.updated_at)
         if payload:
             row.update(stage=payload.get('stage','not_recorded'),detector_status=payload.get('detector_status','not_recorded'))
         if payload and has_collected_items(payload):
@@ -45,10 +50,10 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                             or context is None or context.role!='assistant' or context.text_status!='completed'):
                         valid=False
                     if direct and user_refs and user_refs[0] and context:
-                        from ..voice.screening import explicit_frequency,OPTIONS_BY_SCALE,TOPIC_CUES
+                        from ..voice.screening import frequency_answer,OPTIONS_BY_SCALE,TOPIC_CUES
                         import re
                         valid&=bool(row['demo_mode'] and scale['scale']=='mood_interest'
-                            and explicit_frequency(user_refs[0].content,OPTIONS_BY_SCALE[scale['scale']])==answer['value']
+                            and frequency_answer(user_refs[0].content,OPTIONS_BY_SCALE[scale['scale']],context.content)==answer['value']
                             and re.search(r'两周|十四天',context.content)
                             and any(cue in context.content for cue in TOPIC_CUES[scale['scale']][index]))
                     linked=[m.id for m in [*user_refs,context] if m is not None]

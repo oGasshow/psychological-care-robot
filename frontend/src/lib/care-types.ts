@@ -62,6 +62,7 @@ export interface CollectionScale {
 }
 export interface CollectionObservation { display_name?: string; scale: string; item: number; status: string }
 export interface CollectionResult {
+  saved_answer_review?: {state:string;updated_at:string};
   demo_mode?: boolean; trigger_origin?: string;
   history_danger_unresolved?: boolean;
   recording_session_id: number; started_at: string; is_test: boolean; stage: string; detector_status: string;

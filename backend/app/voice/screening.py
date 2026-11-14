@@ -93,8 +93,20 @@ def explicit_frequency(text, options):
     canonical=re.sub(r'[。！!，,\s]','',text)
     canonical=re.sub(r'^(大概|大约)','',canonical)
     canonical=re.sub(r'(会这样|会如此|这样|出现|有这种情况|吧|的)$','',canonical)
+    if options==CUSTOM_OPTIONS:
+        canonical={'常常':'经常','时不时':'有时','偶尔':'较少','从来没有':'从不','没有这种情况':'从不','完全没有':'从不','几乎每次':'几乎总是'}.get(canonical,canonical)
     matches=[i for i,option in enumerate(options) if canonical==option]
     return matches[0] if len(matches)==1 else None
+
+
+def frequency_answer(text,options,question):
+    value=explicit_frequency(text,options)
+    if value is not None:return value
+    if re.fullmatch(r'(是的|对|没错|确实|确实是)[。！!，,\s]*',text):
+        if re.search(r'不是|不算|不怎么|不太|并不|并非|很少|不常|少有',question):return None
+        values=[i for i,option in enumerate(options) if option in question]
+        if len(values)==1:return values[0]
+    return None
 
 
 def demo_question_item(text):
@@ -102,7 +114,11 @@ def demo_question_item(text):
     if not re.search(r'两周|十四天',text) or not re.search(r'[？?]|吗|呢|如何|怎么样|有没有|多少|频繁',text):return None
     question_text=re.split(r'两周|十四天',text)[-1]
     matches=[i+1 for i,cues in enumerate(TOPIC_CUES['mood_interest']) if any(cue in question_text for cue in cues)]
-    return matches[0] if len(matches)==1 else None
+    if len(matches)!=1:return None
+    direction={1:r'低落|没.{0,4}(兴趣|兴致|乐趣)|提不起.{0,3}(兴趣|兴致)|持续低落',
+        2:r'不足|没.{0,3}(精力|力气|精神|动力)|疲倦|疲惫|乏力|提不起劲|受到影响|行动.{0,4}(困难|受|影响)',
+        3:r'自责|责怪自己|没.{0,4}(希望|价值|盼头)|一无是处|自己很差|自我评价.{0,6}(影响|差|低)|希望感.{0,4}影响'}
+    return matches[0] if re.search(direction[matches[0]],question_text) else None
 
 class ScreeningResult(Base):
     __tablename__='robot_voice_screening_results'
@@ -286,9 +302,11 @@ class Screening:
                 index=demo_question_item(entry.text)
                 question=entry if index and f'mood_interest:{index}' not in self.answers else None
             elif entry.role=='user':
-                if safety(entry.text)['safety_signal']=='explicit_danger_expression' or declines_collection(entry.text,question_pending=bool(question)):
+                if (safety(entry.text)['safety_signal']=='explicit_danger_expression'
+                        or declines_collection(entry.text,question_pending=bool(question))
+                        or re.search(r'先停|休息一下|不舒服|有点难受|崩溃|很痛苦|撑不住|喘不过气|恐慌',entry.text)):
                     self.seen.discard(entry.message_id);self.observe(entry);break
-                if question and explicit_frequency(entry.text,CUSTOM_OPTIONS) is not None:
+                if question and frequency_answer(entry.text,CUSTOM_OPTIONS,question.text) is not None:
                     self.question_context=question;self.question_key=f'mood_interest:{demo_question_item(question.text)}'
                     self.seen.discard(entry.message_id);self.observe(entry)
                 question=None
@@ -358,6 +376,8 @@ class Screening:
               and re.fullmatch(r'(没有(啦|了)?|没了|暂时(没有|没了|没什么)|没什么(了)?|不用(了)?|不想聊(了)?|先这样|就这些|算了|好了)(谢谢|谢了|吧|啦)?[。！!，,？? ]*', text)):
             self.end_after_response=True
             self.closing_question_asked=False
+        elif (self.stage=='collecting' and re.fullmatch(r'(好的[，,]?)?那?(我们)?(就|先)?(结束对话|聊到这里|不聊了|下次再聊)(吧|了)?[。！!，, ]*',text)):
+            self.end_after_response=True
         elif self.stage not in ('declined', 'urgent', 'complete'):
             if declines_collection(text, question_pending=bool(self.question_key)):
                 self.action('decline')
@@ -381,10 +401,11 @@ class Screening:
                     self.action('pause')
                 elif (self.demo_mode and self.question_context is not None
                       and self.question_key and self.question_key not in self.answers
-                      and explicit_frequency(text,OPTIONS_BY_SCALE[self.current()[0]]) is not None):
+                      and frequency_answer(text,CUSTOM_OPTIONS,self.question_context.text) is not None):
                     scale,index=self.question_key.split(':');index=int(index)
-                    value=explicit_frequency(text,OPTIONS_BY_SCALE[scale])
+                    value=frequency_answer(text,OPTIONS_BY_SCALE[scale],self.question_context.text)
                     self.detector_status='checked'
+                    self.collection_feedback=None
                     context_id=self.question_context.message_id
                     self.answers[f'{scale}:{index}']=dict(value=value,evidence_ids=[entry.message_id],
                         confirmation_context_id=context_id,question_context_id=context_id,window_context_id=context_id,
@@ -416,6 +437,11 @@ class Screening:
                     matches = [i for i, option in enumerate(OPTIONS_BY_SCALE[self.current()[0]]) if option == canonical]
                     if len(matches) == 1 and (not self.demo_mode or self.question_key==f'{self.current()[0]}:{self.current()[1]}'):
                         self.pending = (matches[0], entry.message_id)
+        if (self.demo_mode and self.stage=='collecting' and len(self.answers)==before[1]
+                and not self.end_after_response and self.pending is None):
+            self.collection_feedback=('刚才的回答还不能确定该条目频率，请温和补问一次，不要反复要求确认。'
+                if self.question_key else '刚才的问题没有对应仍缺的方向。下一次请纠正话题，只询问后台指定的下一项，不能自行认为已经采齐。')
+            self.version+=1
         if (self.stage in ('companionship','waiting_context') and not self.context_checkin_asked
                 and self.user_turn_waiting_for_reply
                 and self.dialogue_rounds+1>=CONTEXT_CHECKIN_AFTER_USER_TURNS
@@ -513,6 +539,7 @@ class Screening:
             if self.end_after_response:
                 return base+'用户已表示暂时没有其他想聊的内容。简短温暖告别，不再提问，也不总结分数或诊断。'
             return base+'相关问题结束后，不要立即结束对话。继续温和倾听与支持，回应用户自己的感受，不宣布情绪已平缓，不直接问“好些了吗”。留意用户表达内容、语气和对话节奏是否显示愿意告一段落，不凭一次简短回答就推断；自然出现收尾信号时，委婉问今天是否还有想聊的；若用户表示没有，就简短告别不再追问。'
+        if getattr(self,'collection_feedback',None):base+=self.collection_feedback
         _, _, topic = self.current()
         conversational_style='每次只问一项，语气温和自然，不报量表名或题号；根据近两周的真实回答整理信息，结果属于对话辅助采集、待核实，不等同标准自填量表或诊断；用户问起用途时如实说明。'
         if self.current()[0] in CUSTOM_SCALE_IDS:

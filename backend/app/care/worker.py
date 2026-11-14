@@ -150,6 +150,8 @@ def main():
                 processed=0
                 while worker.step():
                     processed+=1
+                from ..voice.demo_reconciliation import scan as reconcile_demo
+                reconcile_demo()
                 reviews=ReviewWorker();reviews.scan()
                 while reviews.step():pass
                 print('{"analysis_worker":"completed","processed":'+str(processed)+'}')

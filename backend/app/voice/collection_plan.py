@@ -86,6 +86,9 @@ def store_plan_in_db(db,uid,is_test,controller):
         history_session_ids=controller.history_session_ids,observations=controller.observations,formal_assessment=False,
         completed_at=now() if complete else None)
     db.merge(CollectionPlan(key=key(uid,is_test),owner=uid,payload=deepcopy(payload),updated_at=now()))
+    if controller.demo_mode and getattr(controller,'collection_external_session_id',None):
+        from .demo_reconciliation import register_in_db
+        register_in_db(db,uid,controller.collection_external_session_id,controller)
 
 def public_plan(uid,is_test,*,db=None):
     data=read_plan_in_db(db,uid,is_test) if db is not None else read_plan(uid,is_test)

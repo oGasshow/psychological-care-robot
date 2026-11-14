@@ -37,7 +37,9 @@ def provider(ws):
                     if name=='decide_conversation_followup' else dict(relevant=False,value=-1))
                 emit(dict(type='response.function_call_arguments.done',items=[dict(name=name,arguments=json.dumps(value,ensure_ascii=False))]))
             elif kind=='session.update':
-                emit(dict(type='session.updated'));instructions=event.get('session',{}).get('instructions',event.get('instructions',''))
+                emit(dict(type='session.updated'))
+                if os.getenv('SHORT_DEMO_SCENARIO')=='late':continue
+                instructions=event.get('session',{}).get('instructions',event.get('instructions',''))
                 for i,topic in enumerate(TOPICS):
                     if topic not in instructions:continue
                     if '自然复述并确认' in instructions and ('confirm',i) not in sent:
@@ -49,6 +51,10 @@ def provider(ws):
             elif kind=='input_audio_unmute.commit' and not tools and not first:
                 first=True;user('initial_demo','最近心情有点低落，做事情没什么兴致。')
                 assistant('initial_reply','我在听，可以慢慢说。')
+                if os.getenv('SHORT_DEMO_SCENARIO')=='late':
+                    for i in (0,2,1):
+                        assistant('late_question'+str(i),f'最近两周，{TOPICS[i]}的情况怎么样？')
+                        user('late_frequency'+str(i),OPTIONS[i]+'。')
             elif kind=='speech_text_buffer.commit':
                 emit(dict(type='response.output_audio.done',response_id='hello'))
             elif kind=='session.close':emit(dict(type='session.closed'));break
@@ -74,7 +80,7 @@ def main():
         output=ROOT/'runtime/short-demo-ui-evidence'
         env=dict(os.environ,CARE_BASE_URL=f'http://127.0.0.1:{cfg["frontend_port"]}',EVIDENCE_DIR=str(output),
             DEMO_USER=cfg['users'][0]['username'],DEMO_PASSWORD=cfg['users'][0]['password'])
-        result=subprocess.run(['node','tools/check-short-demo-ui.mjs'],cwd=ROOT/'frontend',env=env,timeout=120)
+        result=subprocess.run(['node','tools/check-durable-demo-ui.mjs' if os.getenv('SHORT_DEMO_SCENARIO')=='late' else 'tools/check-short-demo-ui.mjs'],cwd=ROOT/'frontend',env=env,timeout=120)
         raise SystemExit(result.returncode)
     finally:
         if (root/'pids.json').exists():demo_care.stop(root,cfg)
