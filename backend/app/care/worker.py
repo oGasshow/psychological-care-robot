@@ -139,10 +139,14 @@ def main():
     worker=Worker()
     stop=threading.Event()
     from ..voice.after_call import ReviewWorker,run as run_reviews
+    from ..voice.sega_live import run as run_sega, step as step_sega
     review_thread=None
+    sega_thread=None
     if not args.once:
         review_thread=threading.Thread(target=run_reviews,args=(stop,),daemon=True,name='after-call-review')
         review_thread.start()
+        sega_thread=threading.Thread(target=run_sega,args=(stop,),daemon=True,name='sega-voice')
+        sega_thread.start()
     try:
         while not stop.is_set():
             worker.scan()
@@ -154,6 +158,7 @@ def main():
                 reconcile_demo()
                 reviews=ReviewWorker();reviews.scan()
                 while reviews.step():pass
+                while step_sega():pass
                 print('{"analysis_worker":"completed","processed":'+str(processed)+'}')
                 return
             if not worker.step():
@@ -163,6 +168,7 @@ def main():
     finally:
         stop.set()
         if review_thread:review_thread.join(timeout=1)
+        if sega_thread:sega_thread.join(timeout=1)
 
 if __name__=='__main__':
     main()
