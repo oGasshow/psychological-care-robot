@@ -35,10 +35,11 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
             valid=True
             references=[]
             for scale in payload.get('scales',[]):
-                answer_times=[]
+                answer_times=[];answer_sessions=set()
                 for index,answer in enumerate(scale.get('items',[])):
                     if not answer:continue
                     messages,source_valid=answer_records(db,owner,session.is_test,answer)
+                    answer_sessions.update(m.recording_session_id for m in messages)
                     valid&=source_valid
                     by_id={m.id:m for m in messages}
                     by_external=({ref['message_id']:by_id.get(ref['record_id']) for ref in answer['source_refs']}
@@ -64,6 +65,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                     if allowed_record_ids is not None and not set(linked)<=allowed_record_ids:valid=False
                     references.extend(linked)
                 scale['observed_at']=max(answer_times,default=None)
+                scale['source_recording_session_ids']=sorted(answer_sessions)
             row.update(scales=payload['scales'],source_status='current_original_text' if valid else 'needs_revalidation',
                 source_record_ids=sorted(set(references)))
             if not valid:

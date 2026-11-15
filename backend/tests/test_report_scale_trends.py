@@ -64,3 +64,15 @@ def test_model_can_cite_verified_historical_scores_but_not_invent_them(actors):
  assert validate_content(json.dumps(content,ensure_ascii=False),facts)['scale_readings']
  content['scale_readings'][0]['text']='PHQ-9辅助合计从18分变为6分。'
  with pytest.raises(ValueError,match='scale_number_not_verified'):validate_content(json.dumps(content,ensure_ascii=False),facts)
+
+def test_legacy_answers_resolve_actual_source_sessions_instead_of_snapshot_session(actors):
+ a,_=actors;first,second,_=seed(a)
+ with SessionLocal() as db:
+  for sid in (first,second):
+   row=db.get(ScreeningResult,sid);payload=json.loads(json.dumps(row.payload))
+   for answer in payload['scales'][0]['items']:
+    if answer:answer.pop('source_refs',None)
+   row.payload=payload
+  db.commit()
+ dto=preview(a,[first,second]);phq=next(g for g in dto['scale_trends'] if g['scale_id']=='PHQ-9')
+ assert phq['points'][0]['recording_session_ids']==[first]

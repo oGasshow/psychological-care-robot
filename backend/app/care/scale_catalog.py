@@ -53,7 +53,7 @@ def summarize(collections,expected=None):
             source_ids=row.get('source_record_ids',[])
             result=dict(answered=answered,score=total,status=status,episode_id=episode,
                 source_status=row['source_status'],source_record_ids=source_ids,recording_session_ids=sorted(set(
-                    ref['recording_session_id'] for a in s.get('items',[]) if a for ref in a.get('source_refs',[]))),items=items,is_test=row['is_test'])
+                    s.get('source_recording_session_ids',[])+[ref['recording_session_id'] for a in s.get('items',[]) if a for ref in a.get('source_refs',[])])),items=items,is_test=row['is_test'])
         else:
             result=dict(answered=0,score=None,status='not_collected',episode_id=None,source_status='no_saved_collection',source_record_ids=[],recording_session_ids=[],items=[],is_test=None)
         result.update(d);result['id']='scale:'+scale
