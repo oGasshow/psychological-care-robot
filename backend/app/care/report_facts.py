@@ -93,6 +93,8 @@ def build_facts(db, uid, scope, dto):
         for day in days:
             day_points = [p for p in points.values() if day_of(p['occurred_at']) == day]
             daily.append(dict(day=day, **{k: sum(p['emotion_label'] == k for p in day_points) for k in LABELS},
+                              recording_session_ids=sorted({m['recording_session_id'] for m in nature_rows if day_of(m['occurred_at'])==day}),
+                              record_ids=sorted(p['record_id'] for p in day_points),
                               classified_count=len(day_points), has_user_records=day in observed_days))
         prior = {p['record_id']: p for p in previous_groups.get(group_key(group), {}).get('points', [])}
         prior_counts = {k: sum(p['emotion_label'] == k for p in prior.values()) for k in LABELS}
@@ -129,8 +131,12 @@ def build_facts(db, uid, scope, dto):
                       incomplete_sessions=any(not s['is_complete'] for s in dto['sessions']),
                       sampled=len(excerpts) < len(candidates), evidence_count=len(excerpts),
                       eligible_candidate_count=len(candidates), danger_excluded_count=len(danger_ids)))
-    facts.extend({**reading,'instrument_kind':reading['kind'],'kind':'scale_result'} for reading in dto.get('scale_summaries',[]))
-    snapshot = dict(scales=dto.get('scale_summaries',[]),collections=dto.get('conversation_assessments',[]),owner=uid, scope=dto['scope'], sessions=[{k:v for k,v in s.items() if k!='data_as_of'} for s in dto['sessions']],
+    for reading in dto.get('scale_summaries',[]):
+        history=[g for g in dto.get('scale_trends',[]) if g['scale_id']==reading['scale_id'] and g['is_test']==reading['is_test']]
+        facts.append({**reading,'instrument_kind':reading['kind'],'kind':'scale_result',
+            'history':[dict(score=p['score'],observed_at=p['observed_at']) for g in history for p in g['points'] if p['score'] is not None],
+            'trend_numeric_change':history[0]['numeric_change'] if len(history)==1 else None})
+    snapshot = dict(scale_trends=dto.get('scale_trends',[]),scales=dto.get('scale_summaries',[]),collections=dto.get('conversation_assessments',[]),owner=uid, scope=dto['scope'], sessions=[{k:v for k,v in s.items() if k!='data_as_of'} for s in dto['sessions']],
                     messages=dto['messages'], sources=dto['source_references'],
                     emotion_groups=dto['emotion_groups'], danger_notice=dto['danger_notice'],
                     previous_sources=(previous or {}).get('source_references', []),
@@ -139,7 +145,7 @@ def build_facts(db, uid, scope, dto):
     digest = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
     test_flags={m['is_test'] for m in messages}
     nature='mixed' if len(test_flags)>1 else 'test_only' if True in test_flags else 'non_test_only' if False in test_flags else 'empty'
-    return dict(report_facts_version='report-facts-v1', source_snapshot_hash=digest, scope=dto['scope'],
+    return dict(report_facts_version='report-facts-v2-scale-trends',report_timezone='Asia/Shanghai', source_snapshot_hash=digest, scope=dto['scope'],
                 comparison_scope=comparison_scope, data_as_of=dto['data_as_of'], data_nature=nature,
                 scale_summaries=dto.get('scale_summaries',[]),coverage=coverage, groups=groups, topics=topics, evidence=excerpts, facts=facts,
                 evidence_selection=next(f for f in facts if f['id']=='limitations'), daily_status='available' if days else 'long_window',

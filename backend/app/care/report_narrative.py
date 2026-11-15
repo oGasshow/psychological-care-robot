@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from typing import Annotated
 from .report_facts import rules_narrative
 
-PROMPT_VERSION = 'report-summary-v2-scales'
+PROMPT_VERSION = 'report-summary-v3-scale-trends'
 
 
 class CitedText(BaseModel):
@@ -87,6 +87,8 @@ def validate_content(raw, facts):
                     if not re.search(r'不是|不等于|不能|不代表|不可|不应|并非|无法',reading.text[max(0,match.start()-24):match.start()]):raise ValueError('scale_name_mismatch')
         text=re.sub(r'PHQ-9|GAD-7','量表',reading.text)
         allowed_numbers={str(v) for v in (f['score'],f['max_score'],f['item_count']) if v is not None}
+        allowed_numbers.update(str(p['score']) for p in f.get('history',[]) if p['score'] is not None)
+        if f.get('trend_numeric_change') is not None:allowed_numbers.add(str(abs(f['trend_numeric_change'])))
         if any(n not in allowed_numbers for n in re.findall(r'\d+(?:\.\d+)?',text)):raise ValueError('scale_number_not_verified')
     all_items = [result.overview, *result.changes, *result.topics, *result.conversation_suggestions, *result.limitations]
     for item in all_items:
@@ -141,7 +143,7 @@ def generate(facts):
             async def compose():
                 selected=[f for f in facts['facts'] if f['kind']=='scale_result' and f.get('answered',0)>0]
                 selected=sorted(selected,key=lambda f:f['instrument_kind']!='standard_reference')[:3]
-                compact_keys=('id','kind','instrument_kind','scale_id','name','purpose','score','max_score','answered','item_count','status','reference_band','meaning','limitation','item9_attention')
+                compact_keys=('id','kind','instrument_kind','scale_id','name','purpose','score','max_score','answered','item_count','status','reference_band','meaning','limitation','item9_attention','history','trend_numeric_change')
                 compact=[{k:f[k] for k in compact_keys if k in f} if f['kind']=='scale_result' else f for f in facts['facts']]
                 async def text_part(instructions,payload):
                     raw=await structured_report(instructions+'\n只返回实际JSON对象，只有text和evidence_ids两个字段，不返回overview包装或schema。',CitedText.model_json_schema(),payload,config['timeout'])
@@ -153,7 +155,7 @@ def generate(facts):
                 tasks.append(text_part(prompt+'\n本次只写一条适合该用户的小建议，联系真实经历，简短可做，不用固定开场，不给出天数、分钟或统计数字。',summary_input))
                 for f in selected:
                     one={k:f[k] for k in compact_keys if k in f}
-                    tasks.append(text_part('你是中文心理陪伴报告撰写者。针对输入唯一指标写一段具体解读：测到了什么、分数或完整度说明什么、哪些结论不能推出。标准量表只用给定参考段，自定义指标不分临床等级；不诊断。只引用这个事实的id，不重复缺失项目，不编造信息。使用阿拉伯数字表达给定的总分，文字不超过200字。',dict(facts=[one],evidence=[])))
+                    tasks.append(text_part('你是中文心理陪伴报告撰写者。针对输入唯一指标写一段具体解读：测到了什么、分数或完整度说明什么、哪些结论不能推出。有多次history时结合首末分数和trend_numeric_change说明变化，只描述分数，不声称疗效或整体心理改善；只有一次时不编造趋势，不写日期。标准量表只用给定参考段，自定义指标不分临床等级；不诊断。只引用这个事实的id，不重复缺失项目，不编造信息。使用阿拉伯数字表达给定的总分，文字不超过200字。',dict(facts=[one],evidence=[])))
                 async with asyncio.timeout(config['timeout']):parts=await asyncio.gather(*tasks)
                 return dict(overview=parts[0],scale_readings=parts[2:],changes=[],topics=[],conversation_suggestions=[parts[1]],limitations=[])
             data=validate_content(json.dumps(asyncio.run(compose()),ensure_ascii=False),facts)

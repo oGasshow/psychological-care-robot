@@ -96,6 +96,7 @@ export interface ReportCoverage {
   user_text_count: number; unclassified_count: number; latest_record_at: string;
 }
 export interface DailyCounts {
+  recording_session_ids?:number[];record_ids?:number[];
   day: string; positive: number; neutral: number; negative: number; classified_count: number; has_user_records: boolean;
 }
 export type Comparison = { eligible: false; reason_code: string } | {
@@ -106,6 +107,7 @@ export interface ReportGroup {
   classified_count: number; engine_kind: string; engine_version: string; config_version: string;
 }
 export interface ReportFacts {
+  latest_record_at?:string|null;
   data_nature?: string; evidence?: ReportEvidence[]; facts?: ReportFact[]; coverage?: ReportCoverage[];
   groups?: ReportGroup[]; topics?: { is_test: boolean; title: string; evidence_ids: string[] }[];
   evidence_selection?: { sampled?: boolean; danger_excluded_count?: number }; comparison_scope?: ReportScope;
@@ -118,6 +120,7 @@ export interface NarrativeContent {
 }
 export interface ReportNarrative { mode: string; reason_code?: string; content?: NarrativeContent; prompt_version?: string; model?: string }
 export interface ReportData {
+  scale_trends?:ScaleTrend[];report_timezone?:string;
   scale_summaries?: ScaleSummary[];
   scope: ReportScope; generated_at: string; anonymous_id: string; data_as_of: string;
   schema_version: string; source_snapshot_hash: string; narrative: ReportNarrative;
@@ -160,3 +163,5 @@ export interface ScaleSummary {
  bands:{min:number;max:number;label:string}[];reference:{title:string;url:string;doi:string}|null;
  items:{item:number;topic:string;points:number|null;answer:string|null;record_ids:number[]}[];recording_session_ids:number[];
 }
+export interface ScaleTrendPoint {id:string;episode_id:string;observed_at:string|null;completed_at:string|null;score:number|null;answered:number;required:number;status:string;recording_session_ids:number[]}
+export interface ScaleTrend {id:string;scale_id:string;name:string;kind:string;source_kind:string;is_test:boolean;demo_mode:boolean;max_score:number;direction:string;points:ScaleTrendPoint[];completed_count:number;numeric_change:number|null}

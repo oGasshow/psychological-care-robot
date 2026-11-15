@@ -35,6 +35,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
             valid=True
             references=[]
             for scale in payload.get('scales',[]):
+                answer_times=[]
                 for index,answer in enumerate(scale.get('items',[])):
                     if not answer:continue
                     messages,source_valid=answer_records(db,owner,session.is_test,answer)
@@ -43,6 +44,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                     by_external=({ref['message_id']:by_id.get(ref['record_id']) for ref in answer['source_refs']}
                         if answer.get('source_refs') else {m.external_message_id:m for m in messages})
                     user_refs=[by_external.get(identifier) for identifier in answer.get('evidence_ids',[])]
+                    answer_times.extend(m.occurred_at for m in user_refs if m is not None)
                     context=by_external.get(answer.get('confirmation_context_id'))
                     anchor=by_external.get(answer.get('question_context_id')) or context
                     window=by_external.get(answer.get('window_context_id')) or anchor
@@ -61,6 +63,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                     linked=[m.id for m in messages]
                     if allowed_record_ids is not None and not set(linked)<=allowed_record_ids:valid=False
                     references.extend(linked)
+                scale['observed_at']=max(answer_times,default=None)
             row.update(scales=payload['scales'],source_status='current_original_text' if valid else 'needs_revalidation',
                 source_record_ids=sorted(set(references)))
             if not valid:

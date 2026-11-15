@@ -145,6 +145,9 @@ def report(db,uid,scope):
     dto['conversation_assessments']=[item for item in collection_history(db,uid,session_ids=selected_ids,
         allowed_record_ids={m['record_id'] for m in dto['messages']},limit=None) if item['scales']]
     dto['scale_summaries']=summarize(dto['conversation_assessments'])
+    from .scale_trends import collection_trends
+    dto['scale_trends']=collection_trends(dto['conversation_assessments'])
+    dto['report_timezone']='Asia/Shanghai'
     # Legacy external assessments are separate from conversation-assisted scales.
     if any(s['score'] is not None for s in dto['scale_summaries']):
         dto['warnings']=[w for w in dto['warnings'] if w not in ('未关联量表，未纳入本报告。','量表数据未启用、无记录或查询失败；未补造分数。')]
