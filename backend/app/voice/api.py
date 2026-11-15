@@ -25,6 +25,7 @@ from .collection_plan import read_plan,restore,store_plan,public_plan,has_saved_
 from .continuity import recent_context
 from . import sega
 from . import demo_reconciliation
+from .live_checkpoint import LiveCheckpoint
 from .after_call import public_reviews, AfterCallReview,touch_live_call,end_live_call
 
 router=APIRouter(prefix='/api/robot-voice',tags=['Doubao voice'])
@@ -292,7 +293,7 @@ async def live(ws:WebSocket):
         await ws.close(code=4403);return
     await ws.accept()
     uid=None;reserved=False;recorder=None;state=Transcripts();client_closed=False;controller=Screening()
-    session_end_code='normal';review_lease=False
+    session_end_code='normal';review_lease=False;checkpoint=None
     async def emit(value):
         nonlocal client_closed
         if client_closed:return
@@ -301,6 +302,7 @@ async def live(ws:WebSocket):
     async def persist(entry):
         if recorder and entry and entry.text.strip() and not entry.recorded:
             await asyncio.to_thread(recorder.enqueue,entry)
+            if checkpoint:checkpoint.request()
     try:
         raw=await asyncio.wait_for(ws.receive_text(),8)
         if len(raw)>10000:raise ValueError('invalid_authentication_frame')
@@ -343,6 +345,9 @@ async def live(ws:WebSocket):
             if controller.enabled:
                 await asyncio.to_thread(touch_live_call,uid,test_data(),recorder.external)
                 review_lease=True
+            if hasattr(recorder,'sync_partial'):
+                checkpoint=LiveCheckpoint(recorder,uid,controller,context['references'],emit)
+                BACKGROUND_TASKS.add(checkpoint.task);checkpoint.task.add_done_callback(BACKGROUND_TASKS.discard)
             controller.collection_external_session_id=recorder.external
             await asyncio.to_thread(demo_reconciliation.register,uid,recorder.external,controller)
             queue=asyncio.Queue(maxsize=16);pending_versions=[]
@@ -354,6 +359,7 @@ async def live(ws:WebSocket):
                                sent_policy_version=None,applied_policy_version=None)
             async def update_policy():
                 await asyncio.to_thread(store_plan,uid,test_data(),controller)
+                if checkpoint:checkpoint.request()
                 payload=upstream.session_payload(cfg,instructions=controller.instructions())
                 payload['type']='session.update'
                 pending_versions.append(controller.version)
@@ -568,38 +574,43 @@ async def live(ws:WebSocket):
                     transport.get('capture_gap_count',0),command,
                     RUNTIMES.get(uid,{}).get('monitor').last_error_code
                     if uid and RUNTIMES.get(uid,{}).get('monitor') else None)
-        final_result=None
-        try:
-            if recorder:
-                try:
-                    for entry in state.unfinished():
-                        if entry.role=='assistant':entry.interrupted=not entry.done
-                        await persist(entry)
-                    result=await asyncio.to_thread(recorder.finish)
-                    if controller.enabled and result['type']=='records.saved':
-                        from .collection_sources import attach_sources
-                        await asyncio.to_thread(attach_sources,uid,result['recording_session_id'],controller,context['references'])
-                        if result['recording_session_id'] not in controller.history_session_ids:
-                            controller.history_session_ids.append(result['recording_session_id'])
-                        await asyncio.to_thread(store_plan,uid,test_data(),controller)
-                        try:await asyncio.to_thread(save_result,uid,result['recording_session_id'],controller)
-                        except Exception:await emit(dict(type='screening.result_failed',message='对话文字已保存，辅助采集结果未能确认保存，后续需从原话重新核实。'))
-                    final_result=result
-                except Exception:
-                    await emit(dict(type='records.error',pending=None,message='部分文字未能确认保存，请保留本页内容并联系项目维护人员。'))
-        finally:
+        async def finalize_recording():
+            final_result=None
             try:
-                if review_lease and recorder:
-                    cleanup=asyncio.create_task(asyncio.to_thread(end_live_call,uid,test_data(),recorder.external))
-                    BACKGROUND_TASKS.add(cleanup);cleanup.add_done_callback(BACKGROUND_TASKS.discard)
-                    with suppress(Exception):await asyncio.shield(cleanup)
+                if checkpoint:await checkpoint.close()
+                if recorder:
+                    try:
+                        for entry in state.unfinished():
+                            if entry.role=='assistant':entry.interrupted=not entry.done
+                            await persist(entry)
+                        result=await asyncio.to_thread(recorder.finish)
+                        if controller.enabled and result['type']=='records.saved':
+                            from .collection_sources import attach_sources
+                            await asyncio.to_thread(attach_sources,uid,result['recording_session_id'],controller,context['references'])
+                            if result['recording_session_id'] not in controller.history_session_ids:
+                                controller.history_session_ids.append(result['recording_session_id'])
+                            await asyncio.to_thread(store_plan,uid,test_data(),controller)
+                            try:await asyncio.to_thread(save_result,uid,result['recording_session_id'],controller)
+                            except Exception:await emit(dict(type='screening.result_failed',message='对话文字已保存，辅助采集结果未能确认保存，后续需从原话重新核实。'))
+                        final_result=result
+                    except Exception:
+                        await emit(dict(type='records.error',pending=None,message='部分文字未能确认保存，请保留本页内容并联系项目维护人员。'))
             finally:
-                # Cancellation during final storage or lease cleanup must never
-                # leave the account permanently marked as an active call.
-                if reserved:ACTIVE.discard(uid);RUNTIMES.pop(uid,None)
-        # A saved receipt also guarantees that a new call can start immediately.
-        if final_result is not None:await emit(final_result)
-        with suppress(RuntimeError,WebSocketDisconnect):await ws.close()
+                try:
+                    if review_lease and recorder:
+                        cleanup=asyncio.create_task(asyncio.to_thread(end_live_call,uid,test_data(),recorder.external))
+                        BACKGROUND_TASKS.add(cleanup);cleanup.add_done_callback(BACKGROUND_TASKS.discard)
+                        with suppress(Exception):await asyncio.shield(cleanup)
+                finally:
+                    # Cancellation during final storage or lease cleanup must never
+                    # leave the account permanently marked as an active call.
+                    if reserved:ACTIVE.discard(uid);RUNTIMES.pop(uid,None)
+            # A saved receipt also guarantees that a new call can start immediately.
+            if final_result is not None:await emit(final_result)
+            with suppress(RuntimeError,WebSocketDisconnect):await ws.close()
+        finalizer=asyncio.create_task(finalize_recording())
+        BACKGROUND_TASKS.add(finalizer);finalizer.add_done_callback(BACKGROUND_TASKS.discard)
+        await asyncio.shield(finalizer)
 
 def install(app):
     app.include_router(router)

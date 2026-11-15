@@ -39,6 +39,24 @@ def provider(ws):
             elif kind=='session.update':
                 emit(dict(type='session.updated'))
                 if os.getenv('SHORT_DEMO_SCENARIO')=='late':continue
+                if os.getenv('SHORT_DEMO_SCENARIO')=='live_save':
+                    instructions=event.get('session',{}).get('instructions','')
+                    if '后台已根据对话线索安排进一步了解' in instructions and 'live_scheduled' not in sent:
+                        sent.add('live_scheduled')
+                        def phase(number):
+                            try:
+                                if number==1:
+                                    assistant('live_q1','最近两周，心情低落或提不起兴趣的情况怎么样？');user('live_a1','我有时会有这种感觉呢。')
+                                elif number==2:
+                                    assistant('live_q2','最近两周，没做什么事也觉得疲惫的情况怎么样？');user('live_a2','这种感觉经常出现呢。')
+                                else:
+                                    assistant('live_q3','最近两周，你会不会经常觉得自己没什么用，或者对未来没什么盼头？');user('live_unclear','有一点点吧，不严重。')
+                                    assistant('live_q3b','那这种感受是属于有时出现吗？');user('live_a3','偶尔会有。')
+                            except Exception:pass
+                        phase(1)
+                        for number,delay in [(2,6),(3,12)]:
+                            timer=threading.Timer(delay,phase,args=(number,));timer.daemon=True;timer.start()
+                    continue
                 instructions=event.get('session',{}).get('instructions',event.get('instructions',''))
                 for i,topic in enumerate(TOPICS):
                     if topic not in instructions:continue
@@ -80,7 +98,7 @@ def main():
         output=ROOT/'runtime/short-demo-ui-evidence'
         env=dict(os.environ,CARE_BASE_URL=f'http://127.0.0.1:{cfg["frontend_port"]}',EVIDENCE_DIR=str(output),
             DEMO_USER=cfg['users'][0]['username'],DEMO_PASSWORD=cfg['users'][0]['password'])
-        result=subprocess.run(['node','tools/check-durable-demo-ui.mjs' if os.getenv('SHORT_DEMO_SCENARIO')=='late' else 'tools/check-short-demo-ui.mjs'],cwd=ROOT/'frontend',env=env,timeout=120)
+        result=subprocess.run(['node',{'late':'tools/check-durable-demo-ui.mjs','live_save':'tools/check-live-collection-ui.mjs'}.get(os.getenv('SHORT_DEMO_SCENARIO'),'tools/check-short-demo-ui.mjs')],cwd=ROOT/'frontend',env=env,timeout=120)
         raise SystemExit(result.returncode)
     finally:
         if (root/'pids.json').exists():demo_care.stop(root,cfg)

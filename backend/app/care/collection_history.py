@@ -17,7 +17,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
         saved=db.get(ScreeningResult,session.id)
         payload=deepcopy(saved.payload) if saved and saved.owner==owner else None
         progress=trace.payload if trace and trace.owner==owner else {}
-        row=dict(recording_session_id=session.id,started_at=session.started_at,is_test=bool(session.is_test),
+        row=dict(snapshot_kind=(payload or progress).get('snapshot_kind'),recording_session_id=session.id,started_at=session.started_at,is_test=bool(session.is_test),
             episode_id=(payload or progress).get('episode_id'),demo_mode=bool((payload or progress).get('demo_mode')),trigger_origin=(payload or progress).get('trigger_origin'),
             source='conversation_assisted',formal_assessment=False,stage=progress.get('stage','not_recorded'),
             detector_status=progress.get('detector_status','not_recorded'),scales=[],
@@ -44,6 +44,8 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                         if answer.get('source_refs') else {m.external_message_id:m for m in messages})
                     user_refs=[by_external.get(identifier) for identifier in answer.get('evidence_ids',[])]
                     context=by_external.get(answer.get('confirmation_context_id'))
+                    anchor=by_external.get(answer.get('question_context_id')) or context
+                    window=by_external.get(answer.get('window_context_id')) or anchor
                     direct=answer.get('confirmation_method')=='explicit_frequency_answer'
                     if (len(user_refs)<(1 if direct else 2) or any(m is None or m.role!='user' or m.text_status!='completed' for m in user_refs)
                             or context is None or context.role!='assistant' or context.text_status!='completed'):
@@ -51,11 +53,12 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                     if direct and user_refs and user_refs[0] and context:
                         from ..voice.screening import frequency_answer,OPTIONS_BY_SCALE,TOPIC_CUES,question_item
                         import re
-                        valid&=bool(question_item(context.content,scale['scale'])==index+1
-                            and frequency_answer(user_refs[0].content,OPTIONS_BY_SCALE[scale['scale']],context.content)==answer['value']
-                            and re.search(r'两周|十四天',context.content)
-                            and any(cue in context.content for cue in TOPIC_CUES[scale['scale']][index]))
-                    linked=[m.id for m in [*user_refs,context] if m is not None]
+                        valid&=bool(anchor is not None and window is not None and anchor.role=='assistant' and window.text_status=='completed'
+                            and question_item(anchor.content if re.search(r'两周|十四天|14天',anchor.content) else '最近两周，'+anchor.content,scale['scale'])==index+1
+                            and frequency_answer(user_refs[0].content,OPTIONS_BY_SCALE[scale['scale']],context.content,anchor.content)==answer['value']
+                            and re.search(r'两周|十四天|14天',window.content)
+                            and any(cue in anchor.content for cue in TOPIC_CUES[scale['scale']][index]))
+                    linked=[m.id for m in messages]
                     if allowed_record_ids is not None and not set(linked)<=allowed_record_ids:valid=False
                     references.extend(linked)
             row.update(scales=payload['scales'],source_status='current_original_text' if valid else 'needs_revalidation',

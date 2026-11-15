@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import time
+import threading
 import uuid
 from sqlalchemy.engine import make_url
 from robot_client import Outbox, Transport, Worker
@@ -33,6 +34,7 @@ class Recorder:
         self.box.create_session(dict(source='doubao_realtime',device_id=device_id,external_session_id=self.external,
                                      started_at=utc_now(),is_test=is_test))
         self.closed=False
+        self.io_lock=threading.RLock()
 
     def enqueue(self,entry):
         if not entry.recorded and entry.text.strip():
@@ -40,21 +42,21 @@ class Recorder:
             entry.recorded=True
 
     def sync_partial(self,seconds=3.5):
-        """Upload the current transcript rows in the same still-open session."""
-        previous=self.box.upload_policy
-        self.box.upload_policy='streaming'
-        try:
-            result=flush(self.box,self.transport,self.external,seconds=seconds)
-            result['upload_policy']='same_session_checkpoint'
-            return result
-        finally:
-            self.box.upload_policy=previous
+        """Upload one coalesced checkpoint; serialize with final close/retries."""
+        with self.io_lock:
+            if self.closed:return dict(type='records.pending',recording_session_id=None,pending=1)
+            previous=self.box.upload_policy;self.box.upload_policy='streaming'
+            try:
+                result=flush(self.box,self.transport,self.external,seconds=seconds)
+                result['upload_policy']='same_session_checkpoint';return result
+            finally:self.box.upload_policy=previous
 
     def finish(self):
-        if not self.closed:
-            self.box.close_session(self.external,utc_now());self.closed=True
-        try:return flush(self.box,self.transport,self.external)
-        finally:self.transport.close()
+        with self.io_lock:
+            if not self.closed:self.box.close_session(self.external,utc_now());self.closed=True
+            try:return flush(self.box,self.transport,self.external)
+            finally:self.transport.close()
+
 
 def flush(box,transport,external=None,seconds=8):
     worker=Worker(box,transport,retry_base=.3,retry_cap=2)

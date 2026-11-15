@@ -25,18 +25,20 @@ def answer_records(db,owner,is_test,answer):
     return records,bool(valid)
 
 def attach_sources(uid,sid,controller,history_references):
-    with SessionLocal() as db:
-        session=db.get(RecordSession,sid)
-        if session is None or session.user_id!=uid:return
-        current={m.external_message_id:m for m in db.query(RecordMessage).filter_by(recording_session_id=sid).all()}
-        for answer in controller.answers.values():
-            if answer.get('source_refs'):continue
-            refs=[]
-            for identifier in identifiers(answer):
-                row=current.get(identifier)
-                if row is None and identifier in history_references:
-                    row=db.get(RecordMessage,history_references[identifier]['record_id'])
-                if row is None:continue
-                refs.append(dict(message_id=identifier,record_id=row.id,recording_session_id=row.recording_session_id,
-                    input_revision=db.get(InputRevision,row.id).revision if db.get(InputRevision,row.id) else 0))
-            answer['source_refs']=refs
+    with SessionLocal() as db:attach_sources_in_db(db,uid,sid,controller,history_references)
+
+
+def attach_sources_in_db(db,uid,sid,controller,history_references):
+    session=db.get(RecordSession,sid)
+    if session is None or session.user_id!=uid:return
+    current={m.external_message_id:m for m in db.query(RecordMessage).filter_by(recording_session_id=sid).all()}
+    for answer in controller.answers.values():
+        if answer.get('source_refs'):continue
+        refs=[]
+        for identifier in identifiers(answer):
+            row=current.get(identifier)
+            if row is None and identifier in history_references:row=db.get(RecordMessage,history_references[identifier]['record_id'])
+            if row is None:continue
+            refs.append(dict(message_id=identifier,record_id=row.id,recording_session_id=row.recording_session_id,
+                input_revision=db.get(InputRevision,row.id).revision if db.get(InputRevision,row.id) else 0))
+        if len(refs)==len(identifiers(answer)):answer['source_refs']=refs

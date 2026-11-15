@@ -9,6 +9,9 @@ from ..care.service import effective
 from .screening_policy import collection_policy
 
 
+RECONCILIATION_VERSION='saved-answers-v3-natural-and-mirroring'
+
+
 class DemoAnswerReview(Base):
     __tablename__='robot_voice_demo_answer_reviews'
     external=Column(String(100),primary_key=True)
@@ -33,6 +36,19 @@ def register(uid,external,controller):
     with transaction(True) as db:register_in_db(db,uid,external,controller)
 
 
+def mirror_missing(db,target,plan):
+    """Restore a missing receipt without inferring answers or changing task state."""
+    from .collection_plan import restore
+    from .screening import Screening,CollectionTrace,ScreeningResult,has_collected_items
+    if db.get(CollectionTrace,target.id) is not None:return
+    s=Screening(True,collection_policy().notice_version);s.demo_mode=bool(plan.get('demo_mode'));s.direct_collection=True
+    restore(s,plan)
+    s.stage='complete' if not plan['needs_collection'] else plan['status']
+    view=s.view();view.update(automatic_saved_answer_review=True,snapshot_kind='recovered_task_snapshot')
+    db.merge(CollectionTrace(session_id=target.id,owner=target.user_id,payload=view))
+    if has_collected_items(view):db.merge(ScreeningResult(session_id=target.id,owner=target.user_id,payload=view))
+
+
 def scan(limit=100):
     if not collection_policy().enabled:return 0
     from .collection_plan import CollectionPlan,read_plan_in_db,restore,store_plan_in_db
@@ -47,7 +63,7 @@ def scan(limit=100):
             if db.get(DemoAnswerReview,session.external_session_id) is None:
                 db.add(DemoAnswerReview(external=session.external_session_id,owner=session.user_id,episode_id=trace.payload['episode_id'],window_end=trace.payload.get('window_end',''),state='pending',updated_at=now()))
         db.flush()
-        jobs=db.query(DemoAnswerReview).order_by(DemoAnswerReview.updated_at.desc()).limit(limit).all()
+        jobs=db.query(DemoAnswerReview).join(RecordSession,(RecordSession.external_session_id==DemoAnswerReview.external)&(RecordSession.user_id==DemoAnswerReview.owner)).order_by(RecordSession.id.desc()).limit(limit).all()
         for job in jobs:
             target=db.query(RecordSession).filter_by(external_session_id=job.external,user_id=job.owner,source='doubao_realtime').first()
             if not target or target.state!='closed' or not summary(db,target)['is_complete'] or has_open_call(db,target):continue
@@ -55,21 +71,23 @@ def scan(limit=100):
             if not plan or plan['episode_id']!=job.episode_id or bool(plan.get('demo_mode'))!=collection_policy().demo_mode or plan['window_end']!=job.window_end:continue
             rows=db.query(RecordMessage).filter_by(recording_session_id=target.id,text_status='completed').order_by(RecordMessage.sequence_no).all()
             drafts={row.id:effective(db,row) for row in rows}
-            signature=hashlib.sha256(json.dumps(dict(episode=job.episode_id,window=job.window_end,status=plan['status'],answers=sorted(plan['answers']),
+            signature=hashlib.sha256(json.dumps(dict(version=RECONCILIATION_VERSION,episode=job.episode_id,window=job.window_end,status=plan['status'],answers=sorted(plan['answers']),
                 rows=[(r.id,drafts[r.id]['input_revision'],drafts[r.id]['effective_content']) for r in rows]),ensure_ascii=False,sort_keys=True).encode()).hexdigest()
             if job.input_hash==signature:continue
             job.input_hash=signature;job.updated_at=now()
             if any(d['input_revision'] for d in drafts.values()):
                 job.state='needs_revalidation';continue
             if not plan['needs_collection']:
-                job.state='complete';continue
+                mirror_missing(db,target,plan);job.state='complete';continue
             if plan['status'] in ('declined','paused','urgent','checking_in') or plan.get('history_danger_unresolved'):
-                job.state='paused';continue
+                mirror_missing(db,target,plan);job.state='paused';continue
             s=Screening(True,collection_policy().notice_version);s.demo_mode=bool(plan.get('demo_mode'));s.direct_collection=True;restore(s,plan);s.stage='collecting'
             entries=[SimpleNamespace(message_id=r.external_message_id,role=r.role,text=drafts[r.id]['effective_content'],final=True) for r in rows]
             before=set(s.answers)
             s.reconcile_demo_turns(entries)
-            if set(s.answers)!=before or s.stage in ('urgent','declined','paused'):
+            missing_trace=db.get(CollectionTrace,target.id) is None
+            missing_result=bool(s.answers) and db.get(ScreeningResult,target.id) is None
+            if set(s.answers)!=before or s.stage in ('urgent','declined','paused') or missing_trace or missing_result:
                 by_external={r.external_message_id:r for r in rows}
                 from .collection_sources import identifiers
                 for key in set(s.answers)-before:
@@ -84,6 +102,7 @@ def scan(limit=100):
                 if trace:
                     view={**trace.payload,**view,'transport_diagnostics':trace.payload.get('transport_diagnostics',{})}
                 view['automatic_saved_answer_review']=True
+                if missing_trace or missing_result:view['snapshot_kind']='recovered_task_snapshot'
                 db.merge(CollectionTrace(session_id=target.id,owner=job.owner,payload=view))
                 if has_collected_items(view):db.merge(ScreeningResult(session_id=target.id,owner=job.owner,payload=view))
                 changed+=1

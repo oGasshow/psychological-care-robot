@@ -62,6 +62,7 @@ export interface CollectionScale {
 }
 export interface CollectionObservation { display_name?: string; scale: string; item: number; status: string }
 export interface CollectionResult {
+  snapshot_kind?:string;
   saved_answer_review?: {state:string;updated_at:string};
   demo_mode?: boolean; trigger_origin?: string;
   history_danger_unresolved?: boolean;
@@ -127,7 +128,9 @@ export interface SegaStatus { message: string; probe_allowed: boolean; installed
 export interface SegaProbe { status: string; device?: string }
 export interface VoiceConfig { enabled: boolean; conditional_collection_enabled: boolean; is_test: boolean; message: string; concern_review_mode?: string; demo_mode?: boolean }
 export interface DeploymentMode { mode:'normal'|'demo'|'unavailable';name:string;demo_mode:boolean;description?:string }
+export interface CollectionSaveReceipt {type:'screening.saved';recording_session_id:number;version:number;saved_at:string;answered:number;required:number;pending_answers:number}
 export interface ScreeningStatus {
+  collection_progress?:{answered:number;required:number};
   type: 'screening.status'; stage: string; version: number; triggered: boolean; detector_status: string;
   review_status: string; error_code?: string;
   review_mode?: string;
@@ -144,10 +147,10 @@ export interface VoiceDiagnostics {
     session_ready_ms?: number; last_final_role?: string; last_final_age_seconds?: number; capture_gap_count?: number };
 }
 export interface AudioDelta { type: 'audio.delta'; message_id: string; audio: string; rate: number }
-export type VoiceEvent = AudioDelta | ScreeningStatus | RecordingReceipt
+export type VoiceEvent = AudioDelta | ScreeningStatus | RecordingReceipt | CollectionSaveReceipt
   | { type: 'transcript.delta' | 'transcript.final'; message_id: string; role: string; text: string; interrupted?: boolean; occurred_at?: string }
   | { type: 'audio.done'; message_id: string }
-  | { type: 'screening.result_failed' | 'error'; message: string }
+  | { type: 'screening.result_failed' | 'screening.save_pending' | 'error'; message: string }
   | { type: 'status'; state: string; message: string }
   | { type: 'dialogue.finished' | 'session.ready' | 'playback.clear' | 'screening.policy_applied' | 'screening.detector_checked' | 'playback.status' };
 
