@@ -60,4 +60,54 @@ NPZ 契约：text 与 question 为 `[1,3,L,768]`，audio 为 `[1,3,L,88]`；各 
 
 本机检查：独立 SEGA 环境已有 torch 与 transformers，尚未安装 opensmile 与 MSA_FET。下载的作者脚本引用定制 FeatureExtractionTool，文本文件名包含 BERT/RoBERTa 实验痕迹；七类情绪使用中文转英文后再送入英文情绪分类器。训练输入按 negative/positive/neutral 三组组织。正式复用该权重前必须核对这些配置，不能只生成相同维数就称为同口径，也不能把平台三类文本情绪填成七类情绪概率。
 
-当前落地的是[通话后文本复核与跨会话任务](screening.md)，由豆包整理有原话依据的关注线索，任务和已确认条目持续保留。SEGA 的作者样例与手动完整特征实验接口继续保留；本轮没有声称自动音频前处理已接通。后续 SEGA 自动支路应采用：按回答缓存真实音频及时间边界 → 固定文本/声学/辅助提取器 → 生成带来源版本的特征包 → 独立进程推理。具备可对照原始样本与配置后先核对特征数值，再评估日常陪伴对话上的误报、漏报和运行耗时。
+原有的[通话后文本复核与跨会话任务](screening.md)由豆包整理有原话依据的关注线索。SEGA 保留作者样例与手动特征实验入口。自动支路的接口和启用条件见下节。
+
+## 通话自动分析与账号标记
+
+语音服务持续接收正常麦克风帧时，默认连续 60 秒静默自动结束并保存。可用 `ROBOT_CARE_VOICE_SILENCE_SECONDS` 在 15–300 秒之间调整。手动暂停、音频断流和助手播放期间分别处理。
+
+新增自动实验链路。语音页只在作者权重与本地提取配置可用时提供本次参与选项，需要明确同意暂存本次回答音频并自行提供模型支持的性别输入。服务端使用已完成的回答和上一轮已播放的助手文字配对，至少需要三组。保存完成后进入持久任务，在 SEGA 独立环境内提取特征和推理。任务用完或到期后清除暂存音频。没有播放回执、音频断流、转录更正或特征缺失时，相关输入不会生成账号标记。
+
+后端 `GET /api/robot-voice/sega/followup` 使用本人 JWT，返回 `marked` 和 `source_session_id`。自动分析成功的 `class=1` 形成标记，`class=0` 与失败均不新增标记。测试数据与非测试数据分开。删除来源会话或更正用作依据的转录后，该来源不再参与标记。会话实验接口的 `automatic_status` 可查询后台处理状态。这个分支只写实验标记，与原豆包采集任务及手动 SEGA 实验接口分开。
+
+安装提取依赖到 `runtime/sega_env`，包括 `opensmile`、`transformers`、`sentencepiece`。本地 NumPy 1.26 环境使用 `pyarrow==23.0.1`。将 `ROBOT_CARE_SEGA_EXTRACTOR_CONFIG` 配为一个本地 JSON 文件的路径。文本编码器需能输出 768 维 token 向量，情绪模型的标签需覆盖作者顺序的七类。配置中的模型目录使用绝对路径，包含 tokenizer、模型配置和 safetensors 权重。配好后重启 API 和 worker。
+
+```json
+{
+  "answer_encoder": "D:/path/to/verified/answer-encoder",
+  "question_encoder": "D:/path/to/verified/question-encoder",
+  "zh_en_translation": "D:/path/to/verified/zh-en-translation",
+  "emotion_classifier": "D:/path/to/verified/emotion-classifier",
+  "audio_window_ms": 1000,
+  "audio_hop_ms": 500,
+  "test_only": true
+}
+```
+
+示例的音频窗口与步长用于说明配置格式。提取器使用 eGeMAPSv02 Functionals 生成 88 维帧序列，作者权重对应的窗口、步长与预处理仍需要对照作者参考数据核验。真实会话联调也要求配置有效的语音服务。自动分析输出保持实验属性。
+
+## 两个服务对接接口
+
+前缀为 `/api/robot-voice/sega/integration`，建议同机调用 `http://127.0.0.1:51077`，其他环境以 API 实际监听地址为准。两个调用方分别使用自己的 `Authorization: Bearer <凭证>`，由 `backend/.env` 中的 `ROBOT_CARE_SEGA_INPUT_TOKEN` 和 `ROBOT_CARE_SEGA_FOLLOWUP_TOKEN` 配置。服务凭证留在服务端，前端用户 JWT 继续使用原有接口。
+
+### 豆包侧提交语音问答
+
+`POST /sessions/{sid}`。先完成原有会话保存，再提交三组按时间排序的问答。`sid` 是服务端 `recording_session_id`，消息使用同一会话内已保存的 `external_message_id`，PCM 格式为 **16 kHz、16-bit 小端、单声道**。每条回答音频为 Base64 编码，包含至少 0.3 秒可检测语音且最长 60 秒。`gender` 来自用户自报，`consent` 表示当前会话已经获得录音分析授权。
+
+请求中的字段为 `user_id`、`consent: true`、`gender: "female" | "male"`、`sample_rate: 16000`、`pairs`。`pairs` 恰有三项，每项提供 `question_message_id`、`answer_message_id` 和 `pcm_base64`。文本从已保存记录读取。
+
+返回 `202` 及 `session_id`、`status`、`duplicate`。相同会话重复提交会返回已有状态。会话未完整保存或提取配置限测试数据时返回 `409`，问答或音频无效返回 `422`，模型配置缺失返回 `503`。后台任务完成前的 `pending` 或 `running` 只代表处理状态。
+
+### 量表服务读取待跟进标记
+
+`GET /followups/{uid}?is_test=true`。正式来源使用 `is_test=false`。响应格式如下。
+
+```json
+{"user_id": 123, "is_test": true, "marked": true, "source_session_id": 456}
+```
+
+上游 `class=1` 成功且来源仍有效时返回 `marked: true`。`source_session_id` 可用于下游去重。没有有效标记时返回 `marked: false` 与 `source_session_id: null`。该状态接口仅供下游读取，量表发送流程另行接入。
+
+`test_only` 省略时默认 `true`。使用本地 BERT、翻译模型或自配音频切窗的实验配置保留 `test_only: true`，待用作者原始特征完成对照后再评估扩展范围。
+
+本地实验配置在 `runtime/sega_extractor.json`。它用 `google-bert/bert-base-chinese` 分别编码问题与回答，用 `Helsinki-NLP/opus-mt-zh-en` 翻译，再用 `j-hartmann/emotion-english-distilroberta-base` 输出七类概率。音频使用 1000 ms 窗口和 500 ms 步长的 eGeMAPSv02。配置文件记录了下载的模型提交。完整对接验证使用虚构转录和合成 PCM，经两个服务接口完成队列、作者权重推理和标记查询。
