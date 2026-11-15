@@ -129,7 +129,7 @@ export interface ReportData {
 }
 export interface SegaStatus { message: string; probe_allowed: boolean; installed: boolean }
 export interface SegaProbe { status: string; device?: string }
-export interface VoiceConfig { enabled: boolean; conditional_collection_enabled: boolean; is_test: boolean; message: string; concern_review_mode?: string; demo_mode?: boolean }
+export interface VoiceConfig { enabled: boolean; conditional_collection_enabled: boolean; is_test: boolean; message: string; concern_review_mode?: string; demo_mode?: boolean; sega_capture_available?: boolean }
 export interface DeploymentMode { mode:'normal'|'demo'|'unavailable';name:string;demo_mode:boolean;description?:string }
 export interface CollectionSaveReceipt {type:'screening.saved';recording_session_id:number;version:number;saved_at:string;answered:number;required:number;pending_answers:number}
 export interface ScreeningStatus {
