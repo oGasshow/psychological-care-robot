@@ -46,14 +46,16 @@ def execute(*,fixture=False,features=None):
     except (OSError,ValueError,IndexError,subprocess.TimeoutExpired):return dict(status='failed',error_type='sega_execution_unavailable')
 
 def session_status(uid,sid):
+    from .sega_live import SegaVoiceJob
     with SessionLocal() as db:
         owned(db,sid,uid);row=db.get(SegaAnalysis,sid)
+        automatic=db.query(SegaVoiceJob.state).filter_by(session_id=sid,owner=uid).scalar()
         result=dict(row.payload) if row and row.owner==uid else None
         if result and any((db.get(InputRevision,int(identifier)).revision if db.get(InputRevision,int(identifier)) else 0)!=revision
                 for identifier,revision in result.get('input_revisions',{}).items()):
             result={k:v for k,v in result.items() if k not in ('model_class','logits')}
             result.update(status='needs_revalidation',reason='source_text_changed')
-        return dict(**status(),result=result,
+        return dict(**status(),result=result,automatic_status=automatic,
             input_status='available_experimental_features' if row else 'missing_aligned_audio_and_auxiliary_features')
 
 async def analyze_features(uid,sid,request:Request):
