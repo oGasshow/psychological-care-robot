@@ -56,7 +56,7 @@ def test_empty_provider_started_id_adopts_real_asr_id_without_extra_turn():
 
 
 @contextmanager
-def cloud(user_texts=None, *, audio_only=False):
+def cloud(user_texts=None, *, audio_only=False, ignore_silence=False, frames_per_turn=1):
     received=[]
     def handler(ws):
         input_count=0
@@ -68,10 +68,15 @@ def cloud(user_texts=None, *, audio_only=False):
                 elif kind=='speech_text_buffer.commit':
                     ws.send(json.dumps(dict(type='response.output_audio.done',response_id='hello')))
                 elif kind=='input_audio_buffer.append':
+                    if ignore_silence and base64.b64decode(event['audio']) == bytes(640):
+                        continue
                     input_count+=1
                     assert len(base64.b64decode(event['audio']))==640
-                    q=f'u{input_count}';r=f'r{input_count}'
-                    spoken=user_texts[min(input_count-1,len(user_texts)-1)] if user_texts else '虚构：今天开心'
+                    if input_count % frames_per_turn:
+                        continue
+                    turn = input_count // frames_per_turn
+                    q=f'u{turn}';r=f'r{turn}'
+                    spoken=user_texts[min(turn-1,len(user_texts)-1)] if user_texts else '虚构：今天开心'
                     events=[dict(type='conversation.item.input_audio_transcription.started',item_id=q),
                             dict(type='conversation.item.input_audio_transcription.completed',item_id=q,text=spoken),
                             dict(type='response.output_text.done',question_id=q,response_id=r,text='我在听，可以慢慢说。'),
@@ -116,6 +121,34 @@ def setup_bridge(monkeypatch,url):
 def authenticate(ws,actor):
     ws.send_json(dict(type='authenticate',token=actor.token,device_id='pi_adapter_test'))
     while ws.receive_json()['type']!='session.ready':pass
+
+
+def test_silence_closes_session_and_saves_transcript(actors,monkeypatch):
+    actor,_=actors
+    with cloud(ignore_silence=True,frames_per_turn=15) as (address, _):
+        setup_bridge(monkeypatch,address)
+        queued=[]
+        monkeypatch.setattr(api.sega_live,'silence_seconds',lambda:0.5)
+        monkeypatch.setattr(api.sega_live,'available',lambda:True)
+        monkeypatch.setattr(api.sega_live,'enqueue',lambda uid,sid,capture:queued.append((uid,sid,capture)))
+        with actor.client.websocket_connect('/api/robot-voice/live') as ws:
+            ws.send_json(dict(type='authenticate',token=actor.token,sega_gender='female'))
+            for _ in range(3):
+                while True:
+                    event=ws.receive_json()
+                    if event['type']=='audio.done':break
+                ws.send_json(dict(type='playback',state='completed',message_id=event['message_id']))
+                for _ in range(15):ws.send_bytes(b'\x00\x08'*320)
+            ws.send_bytes(bytes(640))
+            statuses=[]
+            while True:
+                event=ws.receive_json()
+                if event.get('state'):statuses.append(event['state'])
+                if event['type']=='records.saved':break
+            assert 'silence_timeout' in statuses
+        assert any(entry['role']=='user' for entry in FakeRecorder.instances[0].entries)
+        assert len(queued)==1 and queued[0][:2]==(actor.uid,123)
+        assert len(queued[0][2].pairs)==3
 
 
 def test_goodbye_waits_for_client_playback_finish_even_without_output_text(actors,monkeypatch):

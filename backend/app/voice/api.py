@@ -23,12 +23,13 @@ from .screening_policy import CollectionPolicy, collection_policy, collection_ta
 from .screening_monitor import ScreeningMonitor
 from .collection_plan import read_plan,restore,store_plan,public_plan,has_saved_answers
 from .continuity import recent_context
-from . import sega
+from . import sega, sega_integration, sega_live
 from . import demo_reconciliation
 from .live_checkpoint import LiveCheckpoint
 from .after_call import public_reviews, AfterCallReview,touch_live_call,end_live_call
 
 router=APIRouter(prefix='/api/robot-voice',tags=['Doubao voice'])
+router.include_router(sega_integration.router)
 logger=logging.getLogger(__name__)
 ACTIVE=set()
 RUNTIMES={}
@@ -191,6 +192,11 @@ async def sega_probe(response:Response,uid=Depends(owner)):
     response.headers['Cache-Control']='no-store'
     return await asyncio.to_thread(sega.execute,fixture=True)
 
+@router.get('/sega/followup')
+def sega_followup(response:Response,uid=Depends(owner)):
+    response.headers['Cache-Control']='no-store'
+    return sega_live.followup(uid,test_data())
+
 @router.get('/sega/sessions/{sid}')
 def sega_session(sid:int,response:Response,uid=Depends(owner)):
     response.headers['Cache-Control']='no-store'
@@ -207,6 +213,7 @@ class Authenticate(BaseModel):
     token:Annotated[str,Field(min_length=10,max_length=8192)]
     device_id:Annotated[str,Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')]='browser_audio'
     guided_screening:bool|None=None  # Accepted for older clients; not an authorization gate.
+    sega_gender:Literal['female','male']|None=None  # Explicit opt-in with a self-reported model input.
 
 class ConcernSignal(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
@@ -263,6 +270,7 @@ def config(response:Response,uid=Depends(owner)):
                 conditional_collection_enabled=conditional_enabled,
                 concern_review_mode=review_mode,
                 demo_mode=demo_mode,
+                sega_capture_available=enabled and not demo_mode and sega_live.available() and sega_live.allowed_for(test_data()),
                 message='可以开始语音对话。' if enabled else '语音服务尚未配置，请联系项目维护人员。')
 
 @router.post('/retry-records')
@@ -293,7 +301,7 @@ async def live(ws:WebSocket):
         await ws.close(code=4403);return
     await ws.accept()
     uid=None;reserved=False;recorder=None;state=Transcripts();client_closed=False;controller=Screening()
-    session_end_code='normal';review_lease=False;checkpoint=None
+    session_end_code='normal';review_lease=False;checkpoint=None;sega_audio=None;analyze_on_close=False
     async def emit(value):
         nonlocal client_closed
         if client_closed:return
@@ -320,6 +328,8 @@ async def live(ws:WebSocket):
         cfg=settings()
         if not cfg.enabled or not cfg.api_key:
             await emit(dict(type='error',code='voice_not_configured',message='语音服务尚未配置。'));return
+        if auth.sega_gender and not controller.demo_mode and sega_live.available() and sega_live.allowed_for(test_data()):
+            sega_audio=sega_live.CallAudio(auth.sega_gender)
         startup_started=time.monotonic()
         base=internal_base(ws.scope)
         await emit(dict(type='status',state='connecting',message='正在连接豆包语音…'))
@@ -354,7 +364,8 @@ async def live(ws:WebSocket):
             transport=dict(audio_frames=0,remote_events=0,last_remote_event=None,last_client_command=None,
                            capture_gap_count=0,last_remote_event_at=None,last_final_role=None,last_final_at=None)
             controller.transport_diagnostics=transport
-            last_frame=time.monotonic();mic_enabled=False
+            last_frame=last_activity=time.monotonic();mic_enabled=False
+            silence_limit=sega_live.silence_seconds()
             RUNTIMES[uid]=dict(session_id=recorder.external,queue=queue,controller=controller,transcripts=state,
                                sent_policy_version=None,applied_policy_version=None)
             async def update_policy():
@@ -422,6 +433,7 @@ async def live(ws:WebSocket):
                 if entries:
                     await remote.send(json.dumps({'type':'response.cancel'}))
             async def receive_remote():
+                nonlocal last_activity
                 closing_response=None
                 closing_announced=False
                 async for raw_event in remote:
@@ -438,6 +450,14 @@ async def live(ws:WebSocket):
                         controller.end_after_response=False
                         await interrupt('user_started_speaking')
                     entry,public=state.apply(event)
+                    if entry and kind=='conversation.item.input_audio_transcription.started':
+                        last_activity=time.monotonic()
+                        if sega_audio:sega_audio.start(entry)
+                    if sega_audio and entry and kind=='conversation.item.input_audio_transcription.failed':
+                        sega_audio.reset()
+                    if entry and kind=='conversation.item.input_audio_transcription.completed' and entry.final:
+                        last_activity=time.monotonic()
+                        if sega_audio and public:sega_audio.finish_turn(entry,state.responses)
                     if public:
                         if public['type']=='transcript.final':
                             transport['last_final_role']=entry.role
@@ -457,6 +477,7 @@ async def live(ws:WebSocket):
                         encoded=event.get('delta','')
                         pcm=base64.b64decode(encoded,validate=True)
                         if len(pcm)%2 or len(pcm)>256000:raise ValueError('invalid_provider_audio')
+                        last_activity=time.monotonic()
                         await emit(dict(type='audio.delta',message_id=entry.message_id,audio=encoded,rate=24000))
                     elif kind=='response.output_audio.done' and entry and not entry.interrupted:
                         await emit(dict(type='audio.done',message_id=entry.message_id))
@@ -470,7 +491,7 @@ async def live(ws:WebSocket):
                         await emit(dict(type='status',state='interrupted',message='已打断旧回复，可以继续说。'))
                     elif kind=='session.closed':break
             async def receive_client():
-                nonlocal client_closed,last_frame,mic_enabled
+                nonlocal client_closed,last_frame,last_activity,mic_enabled,analyze_on_close
                 while True:
                     packet=await ws.receive()
                     if packet['type']=='websocket.disconnect':
@@ -481,7 +502,11 @@ async def live(ws:WebSocket):
                         if len(pcm)!=640:raise ValueError('invalid_audio_frame')
                         if not mic_enabled:
                             await remote.send(json.dumps({'type':'input_audio_unmute.commit'}));mic_enabled=True
+                            last_activity=time.monotonic()
                         last_frame=time.monotonic();transport['audio_frames']+=1
+                        spoken=sega_live.speech_frame(pcm)
+                        if spoken:last_activity=last_frame
+                        if sega_audio:sega_audio.append(pcm,spoken)
                         await remote.send(json.dumps({'type':'input_audio_buffer.append','audio':base64.b64encode(pcm).decode('ascii')}))
                         continue
                     text=packet.get('text','')
@@ -490,7 +515,9 @@ async def live(ws:WebSocket):
                     if not isinstance(command,dict):raise ValueError('invalid_control_frame')
                     kind=command.get('type')
                     transport['last_client_command']=kind
-                    if kind=='finish':finishing.set();return
+                    if kind=='finish':
+                        analyze_on_close=True
+                        finishing.set();return
                     if kind=='screening.action':
                         action=command.get('action')
                         if action not in ('decline','pause'):raise ValueError('invalid_screening_action')
@@ -502,17 +529,25 @@ async def live(ws:WebSocket):
                     if kind=='interrupt':await interrupt('manual')
                     elif kind in ('mute','unmute'):
                         mic_enabled=kind=='unmute';last_frame=time.monotonic()
+                        last_activity=last_frame
+                        if sega_audio and not mic_enabled:sega_audio.reset()
                         await remote.send(json.dumps({'type':'input_audio_mute.commit' if kind=='mute' else 'input_audio_unmute.commit'}))
                     elif kind=='commit':await remote.send(json.dumps({'type':'input_audio_buffer.commit'}))
                     elif kind=='playback':
                         # Client scheduling is visible live. Saved immutable text
                         # remains unknown unless interruption was already known.
                         if command.get('state') in ('playing','completed','interrupted'):
-                            await emit(dict(type='playback.status',state=command['state'],message_id=str(command.get('message_id',''))[:100]))
+                            message_id=str(command.get('message_id',''))[:100]
+                            last_activity=time.monotonic()
+                            if sega_audio and command['state']=='completed' and any(
+                                    reply.message_id==message_id and reply.done and not reply.interrupted
+                                    for reply in state.responses.values()):
+                                sega_audio.played.add(message_id)
+                            await emit(dict(type='playback.status',state=command['state'],message_id=message_id))
                     elif kind not in ('interrupt','mute','unmute','commit'):
                         raise ValueError('unsupported_voice_command')
             async def capture_guard():
-                nonlocal mic_enabled
+                nonlocal mic_enabled,session_end_code,analyze_on_close
                 lease_touch=time.monotonic()
                 while True:
                     await asyncio.sleep(2)
@@ -521,8 +556,15 @@ async def live(ws:WebSocket):
                         lease_touch=time.monotonic()
                     if mic_enabled and time.monotonic()-last_frame>6:
                         await remote.send(json.dumps({'type':'input_audio_mute.commit'}));mic_enabled=False
+                        if sega_audio:sega_audio.reset()
                         transport['capture_gap_count']=transport.get('capture_gap_count',0)+1
                         await emit(dict(type='status',state='capture_paused',message='收音数据暂时中断，已暂停上行；恢复收音后继续，或重新连接。'))
+                    elif mic_enabled and not finishing.is_set() and time.monotonic()-last_activity>=silence_limit:
+                        session_end_code='silence_timeout'
+                        analyze_on_close=True
+                        finishing.set()
+                        await emit(dict(type='status',state='silence_timeout',message='一段时间没有听到说话，本次对话已结束，正在保存记录。'))
+                        return
             receiver=asyncio.create_task(receive_remote())
             client=asyncio.create_task(receive_client())
             deadline=asyncio.create_task(asyncio.sleep(cfg.session_seconds))
@@ -584,6 +626,10 @@ async def live(ws:WebSocket):
                             if entry.role=='assistant':entry.interrupted=not entry.done
                             await persist(entry)
                         result=await asyncio.to_thread(recorder.finish)
+                        if (sega_audio and analyze_on_close and result['type']=='records.saved'
+                                and session_end_code in ('normal','silence_timeout')):
+                            try:await asyncio.to_thread(sega_live.enqueue,uid,result['recording_session_id'],sega_audio)
+                            except Exception:logger.warning('sega_voice_enqueue_failed')
                         if controller.enabled and result['type']=='records.saved':
                             from .collection_sources import attach_sources
                             await asyncio.to_thread(attach_sources,uid,result['recording_session_id'],controller,context['references'])
