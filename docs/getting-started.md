@@ -4,6 +4,8 @@
 
 本文命令均从仓库根目录执行。Windows 安装和启动脚本保留在根目录；网页地址与账号以本次启动窗口输出为准，端口可能变化。
 
+下面的 PowerShell／CMD 安装启动示例面向 Windows。Linux／树莓派部署整套服务，请先看[部署与版本核查](operations/deployment.md#linux树莓派运行整套后端时的版本核查)。新版工作台位于 `/robot-care`，不是原项目首页 `/`。
+
 ## 1. 安装项目依赖
 
 准备 Node.js、npm、uv、Python 和用于开发验证的本机 Edge。已验证的版本与完整参数见[安装与交付验证](operations/installation.md)，Python 与前端依赖分别按 backend/uv.lock 和 frontend/package-lock.json 安装。

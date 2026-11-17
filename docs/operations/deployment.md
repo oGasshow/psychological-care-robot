@@ -40,6 +40,22 @@ Linux 服务模板在 deploy/*.service 和 nginx.conf.example，填实际域名/
 
 回退时先停止新 worker 和新入口，用部署前配置/代码或备份副本恢复服务；保留新增表和备份，不 drop 表、不自动删新数据。旧代码本身不知道新派生清理，若回退后仍允许原 DELETE，需先停新增功能并制定对派生内容的清理方案，避免遗留数据；正式回退应由公司测试副本先演练。
 
-## 树莓派后续
+## Linux／树莓派运行整套后端时的版本核查
+
+树莓派也可以自行部署服务端，但本项目尚未完成整套服务在树莓派上的真机验收。Windows `.cmd`／`.ps1` 启动器不适用于 Linux，不能复制 Windows 的虚拟环境、前端构建或绝对路径当作已部署。
+
+出现“从仓库拉取后像旧版”时，分别核对以下几项，不先清空数据或重建演示库：
+
+1. **源码**：在实际部署目录执行 `git remote -v`、`git branch --show-current`、`git rev-parse HEAD`、`git status --short`、`git ls-remote origin refs/heads/main`。远端应为本项目仓库；完整提交号相同，才表示已提交的源码版本一致。存在未提交修改时先核查，不执行强制覆盖。
+2. **入口**：新版工作台是 `/robot-care`，语音页是 `/robot-care/voice`；原首页 `/`、旧聊天等路由保留。它们不是新版机器人入口。登录后仍可直接访问工作台路径。
+3. **前端构建**：`npm start` 运行已有构建，不会自动重新编译刚拉下来的源码。更新后应在服务实际使用的 `frontend` 中执行 `npm ci`，用正确的 `BACKEND_URL` 执行 `npm run build`，再重启前端。服务端口、构建目录和反向代理目标要一致。
+4. **实际服务目录**：本仓库 systemd 模板写的是 `/opt/xinyi/backend` 和 `/opt/xinyi/frontend`。用 `systemctl cat xinyi-api`、`systemctl cat xinyi-web` 检查机器实际配置；更新另一个克隆目录不会改变正在运行的服务。
+5. **私有配置**：Git 不包含 `backend/.env`、数据库、模型资源或 `runtime/`。整套后端部署到树莓派时，需要在该机器配置语音凭据；使用本仓库 systemd 模板时，环境文件是 `/etc/xinyi/backend.env`。进程环境优先于 `backend/.env`，改好后需重启 API 和 worker，不能只刷新网页。
+
+Windows 现场端口由启动器保存；Linux 模板的前端3000、后端8000只是模板值，不应套用另一台电脑的61500／61499。远程浏览器语音还需要 HTTPS／WSS，见[语音说明](../features/voice.md)。
+
+SEGA 的本机模型资源和配置也不会随 Git 拉取。本项目当前作者权重推理脚本要求 CUDA，不能因树莓派已经启动网页和 API 就认为 SEGA 已能在树莓派本机运行；该部分需要另行安排 GPU 服务及验证。
+
+### 原终端部署范围记录
 
 树莓派只放 2.1/2.7 音频输入播放、最终文本事件、robot_client 队列和可选 care_core 规则预览；云端运行 FastAPI、worker、Next 及可选模型。Pi 的 ARM/Python/音频、开机管理、真实语音/策略生效由后续实际设备验证。本轮电脑进程模拟不证明 Pi 兼容。2.5 接入经确认量表记录级版本、完成时间、分数范围和审核引用后再启用可靠 live 展示；当前缺这些证据时显示 unverified。
