@@ -7,6 +7,7 @@ from ..database import Base,SessionLocal
 from ..robot_records import now,RecordSession,RecordMessage
 from ..care.models import InputRevision
 from .screening import ITEMS,SCALE_LABELS,OPTIONS_BY_SCALE
+from .screening_policy import CORE_TARGETS
 
 class CollectionPlan(Base):
     __tablename__='robot_voice_collection_plans'
@@ -51,6 +52,8 @@ def restore(controller,data):
     if not data.get('needs_collection') and not completed_task:return
     controller.episode_id=data['episode_id'];controller.window_end=data['window_end']
     controller.target_scales=list(data.get('target_scales',[]))
+    if controller.core_only and not completed_task:
+        controller.target_scales=[scale for scale in controller.target_scales if scale in CORE_TARGETS]
     controller.signals=list(data.get('signal_evidence',[]))
     controller.detector=data.get('detector_version')
     controller.trigger_origin=data.get('trigger_origin','context_model')
@@ -59,6 +62,8 @@ def restore(controller,data):
     if completed_task:controller.stage='complete'
     elif data['status']=='declined':controller.stage='declined'
     elif data['status'] in ('urgent','checking_in') or controller.history_danger_unresolved:controller.stage='checking_in'
+    elif controller.core_only and data['status']=='paused':controller.stage='paused'
+    elif controller.core_only and not controller.target_scales:controller.stage='companionship'
     else:controller.stage='waiting_context'
 
 def store_plan(uid,is_test,controller):
@@ -78,6 +83,8 @@ def store_plan_in_db(db,uid,is_test,controller):
         controller.signals=list(dict.fromkeys([*old.get('signal_evidence',[]),*controller.signals]))
         controller.history_danger_unresolved|=old.get('history_danger_unresolved',False)
         if controller.stage=='companionship':controller.stage='waiting_context'
+    if controller.core_only:
+        controller.target_scales=[scale for scale in controller.target_scales if scale in CORE_TARGETS]
     if not controller.episode_id:controller.episode_id=uuid.uuid4().hex
     if not controller.window_end:
         controller.window_end=datetime.now(timezone(timedelta(hours=8))).date().isoformat()

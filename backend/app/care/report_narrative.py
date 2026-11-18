@@ -134,7 +134,9 @@ def generate(facts):
         return fallback('no_suitable_excerpts')
     prompt = (Path(__file__).parent / 'prompts' / 'report_summary_v2.txt').read_text('utf-8')
     if facts.get('single_session'):
-        prompt += '\n只撰写本次会话的整体感受与具体建议，使用“这次对话”。不要提此前对话、记录编号、系统状态、来源核验、后台处理或未完成的模型分析，不逐句复述原话。不推断诊断、长期状态或未提供的信息。'
+        prompt += ('\n只撰写本次会话。overview 专门写已经发生的事实、当事人表达的感受及它们在本次对话中的联系。'
+                   '不写建议、行动、鼓励或下一步。conversation_suggestions 专门写从现在起能尝试的具体行动，直接以行动开头，不复述经历或情绪。'
+                   '不要提此前对话、记录编号、系统状态、来源核验或后台处理，不逐句复述原话，不推断诊断或长期状态。')
     schema = Narrative.model_json_schema()
     evidence_input = {k: facts[k] for k in ('report_facts_version', 'scope', 'comparison_scope', 'data_nature', 'facts', 'evidence', 'evidence_selection')}
     messages = [{'role': 'system', 'content': prompt + '\n输出 JSON Schema：' + json.dumps(schema, ensure_ascii=False)},
@@ -153,8 +155,10 @@ def generate(facts):
                     if isinstance(value,dict) and set(value)=={'overview'}:value=value['overview']
                     return CitedText.model_validate(value).model_dump()
                 summary_input={**evidence_input,'facts':compact}
-                tasks=[text_part(prompt+'\n本次仅写overview：以一段具体回顾联系该用户经历、已核验量表与一个可选择的小建议，不复述数字。',summary_input)]
-                tasks.append(text_part(prompt+'\n本次只写一条适合该用户的小建议，联系真实经历，简短可做，不用固定开场，不给出天数、分钟或统计数字。',summary_input))
+                overview_task = ('概括对话中提到的事情和当时感受，只陈述观察，不带建议。' if facts.get('single_session')
+                                 else '以一段具体回顾联系该用户经历、已核验量表与一个可选择的小建议。')
+                tasks=[text_part(prompt+'\n本次仅写 overview：'+overview_task+'不复述数字。',summary_input)]
+                tasks.append(text_part(prompt+'\n本次只写一条简短可做的小建议，直接写动作，不重复经历或感受，不给出天数、分钟或统计数字。',summary_input))
                 for f in selected:
                     one={k:f[k] for k in compact_keys if k in f}
                     tasks.append(text_part('你是中文心理陪伴报告撰写者。针对输入唯一指标写一段具体解读：测到了什么、分数或完整度说明什么、哪些结论不能推出。有多次history时结合首末分数和trend_numeric_change说明变化，只描述分数，不声称疗效或整体心理改善；只有一次时不编造趋势，不写日期。标准量表只用给定参考段，自定义指标不分临床等级；不诊断。只引用这个事实的id，不重复缺失项目，不编造信息。使用阿拉伯数字表达给定的总分，文字不超过200字。',dict(facts=[one],evidence=[])))

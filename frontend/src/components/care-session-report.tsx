@@ -141,8 +141,15 @@ function Report({value}:{value:SessionReport}){
     <section className="report-next"><h2>接下来可以尝试</h2><ul>{value.suggestions.map((text,index)=><li key={index}>{text}</li>)}</ul></section>
     <section className="report-limits"><h2>关于这份报告</h2>
       <p>本报告回顾你这次对话中的表达，共 {value.user_turns} 条用户发言。短对话能提供初步线索，更充分的交流能为回顾提供更多信息。报告供个人参考，不构成医学判断。</p>
-      <p>如果想更深入地了解近况，可以自愿填写完整量表。以下为外部自评工具（英文）。</p>
-      <p><a href="https://screening.mhanational.org/screening-tools/depression/" target="_blank" rel="noreferrer">PHQ-9 心情自评</a> · <a href="https://screening.mhanational.org/screening-tools/anxiety/" target="_blank" rel="noreferrer">GAD-7 焦虑自评</a></p>
+      <h3>可选外部自评</h3>
+      <p>可以按自己想了解的方向选填。外部自评结果由相应网站提供。</p>
+      <ul>
+        <li>心情与兴趣 <a href="https://screening.mhanational.org/screening-tools/depression/" target="_blank" rel="noreferrer">PHQ-9 心情自评（英文）</a></li>
+        <li>紧张与担忧 <a href="https://screening.mhanational.org/screening-tools/anxiety/" target="_blank" rel="noreferrer">GAD-7 焦虑自评（英文）</a></li>
+        <li>睡眠困扰 <a href="https://www.mirecc.va.gov/visn19/treatmentworksforvets/insomnia/check-for-symptoms.asp" target="_blank" rel="noreferrer">ISI 失眠严重程度自评（英文）</a></li>
+        <li>主观幸福感 <a href="https://www.who.int/zh/publications/m/item/WHO-UCN-MSD-MHE-2024.01" target="_blank" rel="noreferrer">WHO-5 幸福感量表（可选中文版）</a></li>
+        <li>重大事件后的困扰 <a href="https://screening.mhanational.org/screening-tools/ptsd/" target="_blank" rel="noreferrer">创伤后应激自评（英文）</a></li>
+      </ul>
     </section>
   </article>;
 }

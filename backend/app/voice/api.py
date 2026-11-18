@@ -46,7 +46,7 @@ def deployment_mode(response:Response):
     except ValueError:return dict(mode='unavailable',name='模式配置待检查',demo_mode=False)
     return dict(mode='demo' if demo else 'normal',name='快速采集演示' if demo else '正常模式',demo_mode=demo,
         description='独立演示数据；单轮近况触发、3项自定义指标，按实际回答计分。' if demo
-        else '完整量表与指标采集；通话后复核，跨会话继续补充。')
+        else '普通语音陪伴；对话中按需开始核心量表采集，通话后复核。')
 
 
 def require_demo():
@@ -130,7 +130,7 @@ async def diagnostics(response:Response,uid=Depends(owner)):
     last_error=monitor.last_error_code if monitor else None
     if last_error in error_messages:message=error_messages[last_error]
     elif not controller.enabled:message='本次会话未启用后台信息采集。'
-    elif controller.review_mode=='post_session' and not controller.triggered:message='本次新出现的关注线索会在结束并保存后后台复核；不会让当前语音等待判定。'
+    elif controller.review_mode=='post_session' and not controller.triggered:message='后台会在对话中查看是否适合继续了解，结束保存后仍可复核。'
     elif controller.stage=='collecting':message='豆包已确认采集指令，可继续自然交流。' if applied==controller.version else '采集任务已下发，正在等待豆包确认。'
     elif controller.stage=='waiting_context':message='已有进一步了解的线索，正在等待适合自然过渡的对话时机。'
     elif controller.stage=='checking_in':message='已带入历史关注任务，先了解当前感受，不因换通话清除任务。'
@@ -319,6 +319,7 @@ async def live(ws:WebSocket):
         except (ValueError,TypeError):policy=CollectionPolicy(False,'','doubao_realtime')
         controller=Screening(policy.enabled,policy.notice_version)
         controller.review_mode=policy.review_mode
+        controller.core_only=not policy.demo_mode and policy.review_mode=='post_session'
         controller.demo_mode=policy.demo_mode and test_data()
         controller.direct_collection=policy.enabled
         uid=await asyncio.to_thread(authenticate_token,auth.token)

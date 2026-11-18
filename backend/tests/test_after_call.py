@@ -72,7 +72,7 @@ def test_two_short_calls_create_one_persistent_task_without_scoring(actors):
     assert worker.scan()==1 and worker.step()
     plan=read_plan(a.uid,True)
     assert plan['needs_collection'] and plan['answers']=={}
-    assert plan['target_scales']==['PHQ-9','mood_interest']
+    assert plan['target_scales']==['PHQ-9']
     assert set(plan['history_session_ids'])=={first,second}
     assert read_plan(b.uid,True) is None and read_plan(a.uid,False) is None
     assert worker.scan()==0 and not worker.step()

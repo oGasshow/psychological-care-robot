@@ -16,6 +16,7 @@ class ScreeningMonitor:
         self.checked_count = 0
         self.last_error_code = None
         self.history=history or []
+        self.started_with_task=controller.triggered
         self.completed_hash=None
         self.completed_event=asyncio.Event()
 
@@ -37,13 +38,17 @@ class ScreeningMonitor:
 
     def snapshot(self):
         data=concern_detector.snapshot(self.turns)
-        if self.history:
+        early_core=(self.controller.core_only and not self.started_with_task
+                    and not self.controller.history_danger_unresolved)
+        if self.history and not early_core:
             import hashlib,json
             old=concern_detector.snapshot(self.history[-14:])['turns']
             data['turns']=old+data['turns'][-16:]
             data['source_snapshot_hash']=hashlib.sha256(json.dumps(data['turns'],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         data['historical_danger']=self.controller.history_danger_unresolved
         if self.controller.demo_mode:data['demo_mode']=True
+        if self.controller.core_only:data['core_only']=True
+        if early_core:data['early_core']=True
         return data
 
     def observe(self, entry):
@@ -71,14 +76,16 @@ class ScreeningMonitor:
                 and self.controller.question_key is None and self.controller.pending is None):
             return
         post_session=self.controller.review_mode=='post_session'
-        if post_session and not self.controller.triggered:
+        if post_session and not self.controller.triggered and not self.controller.core_only:
             return
-        minimum=1 if self.controller.stage=='collecting' or self.controller.demo_mode else (2 if post_session else 1 if self.history else 3)
+        early_core=self.controller.core_only and not self.controller.history_danger_unresolved
+        minimum=1 if self.controller.stage=='collecting' or self.controller.demo_mode or early_core else (2 if post_session else 1 if self.history else 3)
         if (not self.controller.enabled or self.provider != 'doubao_realtime'
                 or self.controller.stage not in ('companionship', 'waiting_context','checking_in','reviewing','collecting')
                 or self.user_count < minimum
                 or self.scheduled_revision == self.revision
                 or (not force and self.scheduled_count
+                    and not (early_core and self.user_count<=2)
                     and self.controller.stage not in ('collecting', 'waiting_context', 'checking_in')
                     and self.user_count-self.scheduled_count < 2)):
             return

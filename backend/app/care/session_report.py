@@ -85,17 +85,24 @@ def window_report(db, uid, start, end):
 INTERNAL_REFERENCE = re.compile(
     r'[#＃]\s*\d+|(?:会话|记录|来源|用户|账号)(?:\s*(?:ID|编号|标识)\s*[:：]?\s*|\s*[#＃]\s*)\w+'
     r'|\b(?:session_id|record_id|source_snapshot_hash)\b', re.IGNORECASE)
+ACTION_PHRASE = re.compile(
+    r'(?:^|[，、：])\s*(?:建议|不妨|试着|下一步|如果愿意|下次可以)'
+    r'|(?:可以|尝试|建议)\s*(?:先|把|去|从|找|跟|和|记录|联系|安排|留意|写|做|给|尝试|试着|考虑|选择|你|您)')
 
 
 def public_narrative(facts, value=None):
     value = value or rules_narrative(facts)
     content = value['content']
     overview = content['overview']['text']
-    if value.get('mode') != 'model' or INTERNAL_REFERENCE.search(overview):
+    if value.get('mode') == 'model':
+        observations = [sentence for sentence in re.split(r'(?<=[。！？；])', overview)
+                        if not ACTION_PHRASE.search(sentence) and not INTERNAL_REFERENCE.search(sentence)]
+        overview = ''.join(observations).strip()
+    if value.get('mode') != 'model' or not overview:
         topics = list(dict.fromkeys(topic['title'] for topic in facts['topics']))[:3]
-        overview = ('这次对话涉及' + '、'.join(topics) + '。可以从当时最在意的一件事说起，看看它带来了怎样的感受。'
-                    if topics else '这次记录反映了你在交谈时的表达。回顾时，可以留意哪些事情让你感到轻松，哪些仍需要多一点支持。')
+        overview = ('这次对话涉及' + '、'.join(topics) + '。'
+                    if topics else '本次记录反映了交谈当时的表达，提供了一段近况的初步线索。')
     return dict(summary=overview,
         suggestions=[item['text'] for item in content['conversation_suggestions']
-                     if not INTERNAL_REFERENCE.search(item['text'])] or
+                     if not INTERNAL_REFERENCE.search(item['text']) and item['text'].strip(' 。！？') not in overview] or
         ['可以记下一件目前最在意的事，以及当时的感受和你希望得到的支持。'])

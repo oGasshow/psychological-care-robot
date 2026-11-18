@@ -165,7 +165,7 @@ class ReviewWorker:
                 row.lease_until, row.updated_at = later(180, stamp), stamp
                 row.next_retry_at = row.error_code = None
                 return dict(session_id=row.session_id, token=row.execution_token,
-                            input_hash=row.input_hash, data=data)
+                            input_hash=row.input_hash, data={**data,'core_only':True})
         return None
 
     def finish(self, claim, result=None, error=None):
@@ -203,6 +203,7 @@ class ReviewWorker:
             if result['decision'] == 'follow_up' and not already_completed:
                 controller = Screening(True, policy.notice_version)
                 controller.review_mode = 'post_session'
+                controller.core_only = True
                 restore(controller, plan)
                 controller.apply_decision({**result, 'transition_ready': False}, fresh=False)
                 controller.history_session_ids = sorted(set(controller.history_session_ids +

@@ -9,7 +9,7 @@ import re
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from .grounding import source_span
-from .screening_policy import collection_targets,collection_demo_enabled
+from .screening_policy import CORE_TARGETS,collection_targets,collection_demo_enabled
 
 VERSION = 'context-followup-v4-combined-targets'
 
@@ -62,6 +62,8 @@ def validate(raw, data):
     from ..care.report_narrative import strict_json
     result = Decision.model_validate(strict_json(raw))
     demo=bool(data.get('demo_mode') and collection_demo_enabled())
+    core_only=bool(data.get('core_only') and not demo)
+    early=bool(core_only and data.get('early_core') and not data.get('historical_danger'))
     users = {t['message_id']: t['text'] for t in data['turns'] if t['role'] == 'user'}
     for item in result.evidence:
         span=source_span(item.quote,users.get(item.message_id,''))
@@ -70,16 +72,16 @@ def validate(raw, data):
         item.quote=span
     if len(set(result.target_scales)) != len(result.target_scales):
         raise ValueError('duplicate_scale')
-    if not set(result.target_scales) <= set(collection_targets()):
+    if not set(result.target_scales) <= set(CORE_TARGETS if core_only else collection_targets()):
         raise ValueError('collection_target_not_enabled')
     if demo and any(s!='mood_interest' for s in result.target_scales):
         raise ValueError('collection_demo_target_invalid')
     if result.decision == 'follow_up':
-        if not result.target_scales or len({e.message_id for e in result.evidence}) < (1 if demo else 2):
+        if not result.target_scales or len({e.message_id for e in result.evidence}) < (1 if demo or early else 2):
             raise ValueError('insufficient_concern_evidence')
         # Engineering gate for the model, not a clinical or psychometric cutoff.
         quotes = ' '.join(e.quote for e in result.evidence)
-        if not demo and not re.search(r'两周|十四天|几个星期|几周|多周|星期|个月|半个?月|最近|这段时间|一阵子|好一阵|'
+        if not (demo or early) and not re.search(r'两周|十四天|几个星期|几周|多周|星期|个月|半个?月|最近|这段时间|一阵子|好一阵|'
                          r'持续|一直|总是|经常|老是|反复|每天|每晚|整晚|'
                          r'影响|上不了班|工作|不出门|学不|做不了|吃不下|睡不着|没精力|'
                          r'想死|不想活|崩溃|撑不住', quotes):
@@ -105,7 +107,7 @@ def validate(raw, data):
         for pair,required_domains in (
                 (('PHQ-9','mood_interest'),{'low_mood','interest'}),
                 (('GAD-7','worry_anxiety'),{'worry'})):
-            if not demo and domains & required_domains and set(result.target_scales) & set(pair):
+            if not (demo or core_only) and domains & required_domains and set(result.target_scales) & set(pair):
                 result.target_scales=list(dict.fromkeys([*result.target_scales,*pair]))
     elif result.target_scales:
         raise ValueError('non_triggering_decision_has_scales')
@@ -129,6 +131,14 @@ async def assess(data):
             '仍须排除否认、转述、假设和纯功能询问；普通闲聊不触发。'
             '当前并非明显痛苦且可以自然继续交流时可transition_ready=true，不需要“准备好了”等口令；'
             '危险、拒绝或明显痛苦时必须false。演示不作诊断，不猜测分数。')
+    elif data.get('core_only'):
+        prompt += ('\n普通版核心采集覆盖上述目标规则：只选择 PHQ-9（低落或兴趣减退）或 GAD-7（紧张或担忧），'
+                   '按线索选择；不选自定义指标或其他量表。仍排除寒暄、假设、转述、短暂情绪、否认及功能提问。')
+        if data.get('early_core') and not data.get('historical_danger'):
+            prompt += ('\n本次为当前通话的早期判断：第一条真实自述如明确表达低落、兴趣减退或难以放下的担忧，'
+                       '一条逐字依据即可 follow_up，无需先证明持续时间或生活影响。'
+                       '若用户愿意继续、无需优先安抚且能自然过渡，可立即设 transition_ready=true；不要求固定口令。'
+                       '用户仍在倾诉、明确拒绝、有危险表达或明显痛苦则 false。')
     aliases={t['message_id']:f'T{i+1}' for i,t in enumerate(data['turns'])}
     originals={v:k for k,v in aliases.items()}
     payload={**data,'turns':[{**t,'message_id':aliases[t['message_id']]} for t in data['turns']],

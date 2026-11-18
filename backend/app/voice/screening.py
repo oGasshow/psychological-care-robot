@@ -3,7 +3,7 @@ import re
 from sqlalchemy import Column, Integer, String, JSON, ForeignKey
 from ..database import Base
 from care_core import safety
-from .screening_policy import collection_targets
+from .screening_policy import CORE_TARGETS, collection_targets
 
 ITEMS = {
     'PHQ-9': ['做事缺少兴趣或乐趣', '心情低落或没有盼头', '难以入睡、睡眠中断或睡得过多',
@@ -172,6 +172,7 @@ class Screening:
         self.enabled = enabled
         self.notice_version = notice_version
         self.review_mode = 'live'
+        self.core_only = False
         self.demo_mode = False
         self.direct_collection = False
         self.trigger_origin = 'context_model'
@@ -243,7 +244,11 @@ class Screening:
         # decision, user stop, danger override, or select arbitrary instruments.
         if not self.enabled or self.stage not in ('companionship','checking_in'):
             return
-        targets = target_scales or (['mood_interest'] if self.demo_mode else collection_targets())
+        targets = target_scales or (['mood_interest'] if self.demo_mode else list(CORE_TARGETS) if self.core_only else collection_targets())
+        if self.core_only:
+            targets = [scale for scale in targets if scale in CORE_TARGETS]
+            if not targets:
+                return
         if self.demo_mode and any(s!='mood_interest' for s in targets):
             raise ValueError('collection_demo_target_invalid')
         if not ids or not targets or any(s not in ITEMS for s in targets):
@@ -259,6 +264,11 @@ class Screening:
     def apply_decision(self, result, *, fresh=True):
         if not self.enabled or self.stage in ('declined', 'urgent', 'complete'):
             return False
+        if self.core_only and result['decision']=='follow_up':
+            targets=[scale for scale in result['target_scales'] if scale in CORE_TARGETS]
+            if not targets:
+                return False
+            result={**result,'target_scales':targets}
         if self.review_status in ('running','pending') and not fresh:
             return False
         self.detector_status = 'checked'
@@ -570,6 +580,8 @@ class Screening:
             return base+'用户刚结束一段倾诉，先温和说“我先把咱们刚才聊的内容梳理一下，稍等我一小会儿，马上回来跟你接着说。”后台最多等待约4秒，整个语音连接保持开启。期间若用户明确在问你或继续对你说话，正常回应并倾听；若明显是在自言自语或对旁人说话，不要插话。后台会根据本段文字决定是否以及沿哪些方向进一步了解，不要自行猜测是否要做、做哪些指标，不要宣布情绪正常。'
         if self.stage in ('companionship', 'waiting_context'):
             if self.review_mode=='post_session':
+                if self.core_only and not self.triggered:
+                    return base+'自然倾听，回应用户刚提到的感受；可以温和问一句近况。后台会在当前对话期间查看是否适合继续了解，不自行启动固定条目。'
                 return base+('新的关注线索会在本次通话文字保存后由后台复核，不要让用户等待后台分析、说“准备好了”或确认是否开始问卷。'
                     '本次先自然倾听并回应具体经历。已有跨会话任务时先留意此刻是否适合继续，后台下发采集阶段后再自然衔接指定话题；未安排任务时不自行执行固定条目。')
             if self.review_completed:

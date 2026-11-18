@@ -44,6 +44,79 @@ def test_no_signal_ready_never_creates_assessment():
     assert not s.triggered and not s.view()['scales'] and s.stage=='companionship'
 
 
+@pytest.mark.parametrize('ready,expected',[(True,'collecting'),(False,'waiting_context')])
+def test_normal_first_turn_can_start_core_collection_without_history(monkeypatch,ready,expected):
+    async def run():
+        s=Screening(True)
+        s.core_only=True
+        s.review_mode='post_session'
+        async def update():
+            updated.set()
+        async def assess(data):
+            assert data['early_core'] and len(data['turns'])==1
+            decision=output(data)
+            decision['transition_ready']=ready
+            return detector.validate(json.dumps(decision),data)
+        monkeypatch.setattr(detector,'assess',assess)
+        updated=asyncio.Event()
+        monitor=ScreeningMonitor(s,update,history=[entry('old','以前睡不好')])
+        task=asyncio.create_task(monitor.run())
+        try:
+            turn=entry('first','我心情低落，做什么都没兴趣。')
+            s.observe(turn)
+            monitor.observe(turn)
+            await asyncio.wait_for(updated.wait(),2)
+            assert s.stage==expected and s.target_scales==['PHQ-9']
+            assert not s.answers
+        finally:
+            task.cancel()
+            await asyncio.gather(task,return_exceptions=True)
+    asyncio.run(run())
+
+
+def test_normal_early_review_excludes_non_core_targets():
+    data=fixture()
+    data.update(core_only=True,early_core=True)
+    value=output(data)
+    value['target_scales']=['PHQ-9','mood_interest']
+    with pytest.raises(ValueError,match='collection_target_not_enabled'):
+        detector.validate(json.dumps(value),data)
+
+
+def test_normal_early_review_rechecks_after_reply_without_requiring_another_user_turn(monkeypatch):
+    async def run():
+        s=Screening(True)
+        s.core_only=True
+        s.review_mode='post_session'
+        started, release, collecting=asyncio.Event(), asyncio.Event(), asyncio.Event()
+        async def update():
+            if s.stage=='collecting':
+                collecting.set()
+        async def assess(data):
+            assert data['early_core'] and len([t for t in data['turns'] if t['role']=='user'])==1
+            started.set()
+            await release.wait()
+            return detector.validate(json.dumps(output(data)),data)
+        monkeypatch.setattr(detector,'assess',assess)
+        monitor=ScreeningMonitor(s,update,history=[entry('old','历史发言')])
+        task=asyncio.create_task(monitor.run())
+        try:
+            turn=entry('u','我觉得很低落，想聊聊这件事。')
+            s.observe(turn)
+            monitor.observe(turn)
+            await asyncio.wait_for(started.wait(),2)
+            reply=entry('assistant','我在听，可以慢慢说。','assistant')
+            s.observe(reply)
+            monitor.observe(reply)
+            release.set()
+            await asyncio.wait_for(collecting.wait(),2)
+            assert monitor.user_count==1
+        finally:
+            task.cancel()
+            await asyncio.gather(task,return_exceptions=True)
+    asyncio.run(run())
+
+
 def test_policy_requires_server_notice_declaration(monkeypatch):
     monkeypatch.setenv('ROBOT_CARE_GUIDED_SCREENING_ENABLED','true')
     monkeypatch.delenv('ROBOT_CARE_PURCHASE_NOTICE_VERSION',raising=False)

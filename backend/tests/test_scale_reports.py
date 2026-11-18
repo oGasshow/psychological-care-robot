@@ -66,6 +66,14 @@ def test_public_report_uses_only_selected_session_even_with_inherited_items(acto
     narrative=a.request('POST',path+'/narrative',json={'source_snapshot_hash':report['source_snapshot_hash']})
     assert narrative.status_code==200 and '123' not in narrative.text and '567' not in narrative.text
 
+    def overlapping_summary(_):
+        return {'mode':'model','content':{'overview':{'text':'你提到课业让你紧绷。可以先联系一位朋友。'},
+            'conversation_suggestions':[{'text':'可以先联系一位朋友。'}]}}
+
+    monkeypatch.setattr(report_narrative,'generate',overlapping_summary)
+    narrative=a.request('POST',path+'/narrative',json={'source_snapshot_hash':report['source_snapshot_hash']}).json()
+    assert narrative=={'summary':'你提到课业让你紧绷。','suggestions':['可以先联系一位朋友。']}
+
 
 def test_window_report_returns_only_aggregate_data(actors):
     a,b=actors
