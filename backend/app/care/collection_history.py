@@ -1,7 +1,7 @@
 """Read conversational collection separately from formal/fixture assessments."""
 from copy import deepcopy
 from ..robot_records import RecordMessage,RecordSession
-from ..voice.screening import CollectionTrace,ScreeningResult,has_collected_items
+from ..voice.screening import CollectionTrace,ScreeningResult,core_self_report,has_collected_items
 from .models import InputRevision
 
 
@@ -50,10 +50,16 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                     anchor=by_external.get(answer.get('question_context_id')) or context
                     window=by_external.get(answer.get('window_context_id')) or anchor
                     direct=answer.get('confirmation_method')=='explicit_frequency_answer'
-                    if (len(user_refs)<(1 if direct else 2) or any(m is None or m.role!='user' or m.text_status!='completed' for m in user_refs)
-                            or context is None or context.role!='assistant' or context.text_status!='completed'):
+                    standalone=answer.get('confirmation_method')=='explicit_self_report'
+                    if (len(user_refs)<(1 if direct or standalone else 2)
+                            or any(m is None or m.role!='user' or m.text_status!='completed' for m in user_refs)):
                         item_valid=False
-                    if direct and user_refs and user_refs[0] and context:
+                    if standalone:
+                        item_valid &= bool(len(user_refs)==1 and window is user_refs[0] and window is not None
+                            and core_self_report(window.content)==(scale['scale'],index+1,answer['value']))
+                    elif context is None or context.role!='assistant' or context.text_status!='completed':
+                        item_valid=False
+                    elif direct and user_refs and user_refs[0]:
                         from ..voice.screening import frequency_answer,OPTIONS_BY_SCALE,TOPIC_CUES,question_item
                         import re
                         item_valid&=bool(anchor is not None and window is not None and anchor.role=='assistant' and window.text_status=='completed'

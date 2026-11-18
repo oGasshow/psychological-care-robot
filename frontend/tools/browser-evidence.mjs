@@ -38,10 +38,9 @@ try{
   await page.locator('button[type="submit"]').click();
   await page.waitForURL('**/robot-care');
   await page.getByTestId('history-list').waitFor();
-  await page.waitForFunction(()=>document.querySelector('[data-testid="anonymous-id"]')?.textContent?.startsWith('KY-'));
-  const anon=await page.getByTestId('anonymous-id').innerText();
-  assert(!(await page.locator('body').innerText()).includes(username),'Care page must not display real username');
-  await shot('02_history.png');record('real_login_anonymous_history',{anonymous_id:anon});
+  await page.getByTestId('account-username').waitFor();
+  assert(await page.getByTestId('account-username').innerText()===username,'Care page must display the signed-in username');
+  await shot('02_history.png');record('real_login_account_history');
   const sessions=await api('robot-records/sessions?limit=100');assert(sessions.status===200 && sessions.data.items.length,'Demo sessions required');
   const session=sessions.data.items.find(s=>s.is_complete)||sessions.data.items[0];
   const sid=session.recording_session_id;
@@ -108,7 +107,7 @@ try{
   await page.evaluate(scope=>sessionStorage.setItem('care-report-scope',JSON.stringify(scope)),scope);
   await page.goto(`${origin}/robot-care/report`,{waitUntil:'networkidle'});
   await page.getByTestId('report-dto').waitFor();
-  assert(await page.getByTestId('report-dto').innerText().then(text=>text.includes('模拟数据演示')&&text.includes(anon)&&text.includes('非专业心理咨询师')),'Report nature/demo/anonymous marks');
+  assert(await page.getByTestId('report-dto').innerText().then(text=>text.includes('模拟数据演示')&&text.includes(username)&&text.includes('非专业心理咨询师')),'Report nature/demo/account marks');
   await shot('08_report_preview.png');record('complete_report_preview');
   await page.getByRole('link',{name:'打开专用打印页'}).click();await page.waitForURL('**/robot-care/report/print');await page.getByTestId('report-dto').waitFor();
   const before=evidence.api_statuses.filter(s=>s.path.endsWith('/reports/preview')).length;

@@ -115,7 +115,7 @@ try {
   await page.goto(`${origin}/login`, { waitUntil: 'networkidle' });
   await page.locator('input[name="username"]').fill(username); await page.locator('input[name="password"]').fill(password);
   await page.locator('button[type="submit"]').click(); await page.waitForURL('**/robot-care');
-  await page.waitForFunction(() => document.querySelector('[data-testid="anonymous-id"]')?.textContent?.startsWith('KY-'));
+  await page.getByTestId('account-username').waitFor();
   // A fresh future window prevents retries from colliding with preserved evidence.
   const anchor = Date.UTC(2040, 0, 1) + Math.floor(Math.random() * 5256000) * 60000;
   const at = minutes => new Date(anchor + minutes * 60000).toISOString();

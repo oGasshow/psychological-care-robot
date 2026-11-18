@@ -121,10 +121,16 @@ class ScreeningMonitor:
                     self.checked_count = count
                     self.last_error_code = None
                     fresh = (self.latest_user_id == data['latest_user_id']
-                             and self.snapshot()['source_snapshot_hash']==data['source_snapshot_hash']
+                             and (self.snapshot()['source_snapshot_hash']==data['source_snapshot_hash']
+                                  or self.controller.core_only and not self.controller.history_danger_unresolved)
                              and not (self.controller.history_danger_unresolved and count<2))
+                    was_collecting = self.controller.stage == 'collecting'
                     changed = self.controller.apply_decision(result, fresh=fresh)
-                    if fresh and self.controller.reconcile_demo_turns(self.turns):changed=True
+                    if fresh and not self.controller.core_only and self.controller.reconcile_demo_turns(self.turns):
+                        changed = True
+                    if (fresh and self.controller.core_only and not was_collecting
+                            and self.controller.stage == 'collecting' and self.turns[-1].role == 'assistant'):
+                        self.controller.observe(self.turns[-1])
                     if changed:
                         await self.update_policy()
                     if self.emit:

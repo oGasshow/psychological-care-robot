@@ -76,6 +76,69 @@ def test_public_report_uses_only_selected_session_even_with_inherited_items(acto
     assert narrative=={'summary':'你提到课业让你紧绷。','suggestions':['可以先在作业间隙联系一位朋友。','把待办写在纸上。']}
 
 
+def test_core_short_conversation_persists_early_items_in_selected_report(actors):
+    a,_=actors
+    s=Screening(True,'fictional-normal-v1')
+    s.core_only=s.direct_collection=True
+    s.review_mode='post_session'
+    lines=[
+        ('user','你好，我想和你聊近况。'),
+        ('assistant','好啊，有什么想说的吗？'),
+        ('user','我最近觉得心情很低落。'),
+        ('assistant','听起来这段时间不容易。最近两周，大概有几天觉得心情低落？'),
+        ('user','有五天左右。'),
+        ('assistant','最近两周，大概有几天对平常喜欢的事提不起兴趣？'),
+        ('user','大概八九天。'),
+        ('assistant','最近两周有没有睡不好，比如半夜醒，或者睡很久还是觉得累？'),
+        ('user','差不多，天天。'),
+        ('assistant','谢谢你慢慢说。'),
+    ]
+    sid=a.create('voice_core_short_'+uuid.uuid4().hex[:8],started_at=now()).json()['recording_session_id']
+    for i,(role,text) in enumerate(lines,1):
+        row=entry(text,role);s.observe(row)
+        assert a.send(sid,i,**row.wire()).status_code==201
+    assert a.request('POST',f'/api/robot-records/sessions/{sid}/close',json=dict(ended_at=now(),last_sequence_no=len(lines))).status_code==200
+    attach_sources(a.uid,sid,s,{})
+    store_plan(a.uid,True,s);assert save_result(a.uid,sid,s)
+    report=a.request('GET',f'/api/robot-insights/reports/session/{sid}').json()
+    assert [(r['scale_id'],r['answered'],r['score']) for r in report['scores']]==[('PHQ-9',3,6)]
+
+
+def test_standalone_frequency_appears_in_session_report(actors):
+    a,_=actors
+    s=Screening(True,'fictional-normal-v1')
+    s.core_only=s.direct_collection=True
+    s.review_mode='post_session'
+    utterance=entry('过去两周，大概有五天我觉得心情低落。','user')
+    s.observe(utterance)
+    sid=a.create('voice_core_self_report_'+uuid.uuid4().hex[:8],started_at=now()).json()['recording_session_id']
+    assert a.send(sid,1,**utterance.wire()).status_code==201
+    assert a.request('POST',f'/api/robot-records/sessions/{sid}/close',json=dict(ended_at=now(),last_sequence_no=1)).status_code==200
+    attach_sources(a.uid,sid,s,{})
+    store_plan(a.uid,True,s);assert save_result(a.uid,sid,s)
+    report=a.request('GET',f'/api/robot-insights/reports/session/{sid}').json()
+    assert [(r['scale_id'],r['answered'],r['score']) for r in report['scores']]==[('PHQ-9',1,1)]
+
+
+@pytest.mark.parametrize('line,expected',[
+    ('如果我最近觉得心情很低落，你会怎么问？','companionship'),
+    ('今天考试，我有点紧张。','companionship'),
+    ('我最近心情很低落，但我不想回答量表问题。','declined'),
+    ('我最近心情很低落，我有点不想活了。','urgent'),
+])
+def test_early_collection_does_not_override_context_and_safety(line,expected):
+    s=Screening(True,'fictional-normal-v1')
+    s.core_only=True
+    s.observe(entry(line,'user'))
+    assert s.stage==expected and not s.answers
+
+
+@pytest.mark.parametrize('line', ['有十五天', '有15天', '有25天', '大概七八天'])
+def test_core_frequency_rejects_out_of_range_or_ambiguous_days(line):
+    from app.voice.screening import OPTIONS,frequency_answer
+    assert frequency_answer(line,OPTIONS,'最近两周，大概有几天觉得心情低落？') is None
+
+
 def test_window_report_returns_only_aggregate_data(actors):
     a,b=actors
     seed(a)

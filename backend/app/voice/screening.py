@@ -60,6 +60,67 @@ POLARITY_GUARDS = {
     ('GAD-7',4): r'难以放松|无法放松|不能放松|放松不下来|很难放松',
 }
 
+CORE_OPENERS = {
+    ('PHQ-9', 1): '最近两周，大概有几天对平常喜欢的事提不起兴趣？',
+    ('PHQ-9', 2): '最近两周，大概有几天觉得心情低落？',
+    ('GAD-7', 1): '最近两周，大概有几天感到紧张或焦虑？',
+    ('GAD-7', 2): '最近两周，大概有几天觉得担心很难停下来？',
+}
+CORE_CONCERN = re.compile(
+    r'^(?:最近|这阵子|这几天|最近两周|这两周)?[，, ]*我(?:最近|这阵子|这几天|最近两周|这两周)?'
+    r'(?:一直|经常|反复|这段时间|很|总是|总|挺|常常|老是|有点|特别|真的|感到|感觉|觉得|心情|情绪|变得|都|几乎每天|很容易|实在|好像)*'
+    r'(?:(?P<interest>提不起(?:什么|任何|一点|什么样的)?兴趣|对[^，。！？；]{1,18}(?:提不起兴趣|没了兴趣|没什么兴趣))'
+    r'|(?P<low_mood>很?低落|很?沮丧|没什么盼头|没有盼头)'
+    r'|(?P<worry>担心得停不下来|担心[^，。！？；]{0,12}(?:停不下来|无法控制|控制不住)|控制不住地担心|怎么都停不下(?:担心|担忧))'
+    r'|(?P<anxiety>紧张|焦虑))')
+CORE_CONCERN_ITEMS = {
+    'interest': ('PHQ-9', 1), 'low_mood': ('PHQ-9', 2),
+    'worry': ('GAD-7', 2), 'anxiety': ('GAD-7', 1),
+}
+SELF_REPORT_EXCLUSION = re.compile(
+    r'如果|假[如设]|假装|例如|举例|比方说|开玩笑|台词|测试一下|模拟|我朋友|我同学|我家人|不是|并不|不觉得|'
+    r'不再|好多了|已经.{0,6}(?:好了|缓解|过去)|刚才|今天才|只是今天|过去曾|明年|昨天才')
+CORE_WINDOW = r'(?:最近|过去|这|近)(?:两周|两个星期|十四天|14天)'
+
+
+def core_concern_item(text):
+    if SELF_REPORT_EXCLUSION.search(text) or re.search(r'[？?]|(?:吗|呢)[。！!]?$', text):
+        return None
+    match = CORE_CONCERN.match(text)
+    if not match or re.match(r'症|障碍|患者|的话|这个词', text[match.end():]):
+        return None
+    if match.lastgroup == 'anxiety' and not re.search(r'最近|这阵子|这几天|这两周|经常|反复|老是|总是|一直', match.group()):
+        return None
+    return CORE_CONCERN_ITEMS[match.lastgroup]
+
+
+def core_day_count(text):
+    number = r'十[一二三四]?|[一二两三四五六七八九零〇]|0?[0-9]|1[0-4]'
+    chinese_digit = '一二两三四五六七八九'
+    match = re.fullmatch(
+        rf'(?:大概|大约|差不多|差不离)?(?:有|出现了|是)?({number})'
+        rf'(?:[到至、~-]({number})|(?<=[{chinese_digit}])([{chinese_digit}]))?天(?:左右|吧|的样子)?', text)
+    if not match:
+        return None
+    chinese = dict(zip('零一二三四五六七八九', range(10))) | {'〇': 0, '两': 2, '十': 10}
+
+    def band(raw):
+        days = int(raw) if raw.isdigit() else 10 + chinese[raw[1]] if len(raw) == 2 else chinese[raw]
+        if days == 0:
+            return 0
+        if days <= 7:
+            return 1
+        if days <= 11:
+            return 2
+        if days == 14:
+            return 3
+        return None  # Near-daily vs. more than half requires clarification.
+
+    first, separated, adjacent = match.groups()
+    last = separated or adjacent
+    value = band(first)
+    return value if not last or value == band(last) else None
+
 def declines_collection(text, *, question_pending=False):
     """Recognize a refusal to the collection itself, not an unrelated task."""
     text = re.sub(r'\s+', '', text)
@@ -98,13 +159,22 @@ def explicit_frequency(text, options):
     if options==CUSTOM_OPTIONS:
         patterns={4:r'几乎总是|几乎每次',3:r'经常|常常',2:r'有时候|有时|时不时',1:r'较少|很少|偶尔',0:r'从不|从未'}
     else:
-        patterns={3:r'几乎每天',2:r'超过一半(的)?天数',1:r'有几天',0:r'从不|从未'}
+        patterns={3:r'几乎每天|差不多天天|基本每天',2:r'超过一半(的)?天数|一半以上|超过半数',1:r'有几天',0:r'从不|从未'}
     found={value for value,pattern in patterns.items() if re.search(pattern,normalized)}
     if zero:found.add(0)
     return next(iter(found)) if len(found)==1 else None
 
 
 def frequency_answer(text,options,question,topic_question=None):
+    if options == OPTIONS:
+        normalized = re.sub(r'[。！!，,？?\s]', '', text)
+        days = core_day_count(normalized)
+        if days is not None:
+            return days
+        if re.fullmatch(r'(?:我)?(?:基本每天|差不多天天|每天|天天|一半以上|超过半数|一次也没有|一天都没有)(?:都(?:有|会)|吧)?', normalized):
+            if '没有' in normalized:
+                return 0
+            return 2 if '半' in normalized else 3
     value=explicit_frequency(text,options)
     if value is not None:
         if value==0 and re.fullmatch(r'(这|那)?倒?是?(完全|确实|真的)?没有(啊|呀|呢|的)?[。！!？?，,\s]*',text):return 0
@@ -120,6 +190,28 @@ def frequency_answer(text,options,question,topic_question=None):
         if re.search(r'不是|不算|不怎么|不太|并不|并非|很少|不常|少有',question):return None
         values=[i for i,option in enumerate(options) if option in question]
         if len(values)==1:return values[0]
+    return None
+
+
+def core_self_report(text):
+    """Accept a standalone first-person report only when it states all three parts."""
+    text = re.sub(r'\s+', '', text).strip('。！!')
+    window = re.match(rf'{CORE_WINDOW}[，,、]?', text)
+    if not window or SELF_REPORT_EXCLUSION.search(text) or re.search(r'[？?]', text):
+        return None
+    body = text[window.end():]
+    before, separator, after = body.partition('我')
+    if not separator:
+        return None
+    if before:
+        statement, frequency = separator + after, before.strip('，,')
+        match = CORE_CONCERN.fullmatch(statement)
+    else:
+        match = CORE_CONCERN.match(body)
+        frequency = body[match.end():].strip('，,') if match else ''
+    value = frequency_answer(frequency, OPTIONS, '') if frequency else None
+    if match and value is not None and value > 0:
+        return (*CORE_CONCERN_ITEMS[match.lastgroup], value)
     return None
 
 
@@ -140,13 +232,15 @@ def question_item(text,scale):
     if not re.search(r'两周|十四天|14天',text) or not re.search(r'[？?]|吗|呢|如何|怎么样|有没有|多少|频繁',text):return None
     question=re.split(r'两周|十四天|14天',text)[-1]
     exact=[i+1 for i,topic in enumerate(ITEMS[scale]) if topic in question]
+    if scale in CORE_TARGETS and not exact:
+        question=re.split(r'比如|譬如|例如',question,maxsplit=1)[0]
     matched=exact or [i+1 for i,cues in enumerate(TOPIC_CUES[scale]) if any(c in question for c in cues)]
     if len(matched)!=1:return None
     index=matched[0]
     guard=POLARITY_GUARDS.get((scale,index))
     if guard and not re.search(guard,question):return None
     negative={
-        ('PHQ-9',2):r'低落|沮丧|没有盼头|没盼头',('PHQ-9',3):r'难以入睡|睡不着|睡眠中断|睡得过多|失眠|难以睡|睡得太多',
+        ('PHQ-9',2):r'低落|沮丧|没有盼头|没盼头',('PHQ-9',3):r'难以入睡|睡不着|睡不好|睡眠中断|睡得过多|失眠|难以睡|睡得太多',
         ('PHQ-9',4):r'疲倦|疲惫|缺乏精力|没精力|累',('PHQ-9',5):r'食欲减少|吃得过多|胃口差|吃不下|吃太多',
         ('PHQ-9',6):r'自责|失望|没价值|没有价值',('PHQ-9',8):r'变慢|缓慢|坐立不安',('PHQ-9',9):r'伤害|死|不想活',
         ('GAD-7',1):r'紧张|焦虑|坐立不安',('GAD-7',2):r'停止|控制|停不下',('GAD-7',3):r'担忧|担心',
@@ -186,6 +280,7 @@ class Screening:
         self.user_invited_questions = False
         self.question_followup = None
         self.window_context = None
+        self.preferred_item = None
         self.confirmation_context_id = None
         self.detector = None
         self.detector_status = 'not_checked'
@@ -262,7 +357,7 @@ class Screening:
         self.version += 1
 
     def apply_decision(self, result, *, fresh=True):
-        if not self.enabled or self.stage in ('declined', 'urgent', 'complete'):
+        if not self.enabled or self.stage in ('declined', 'paused', 'urgent', 'complete'):
             return False
         if self.core_only and result['decision']=='follow_up':
             targets=[scale for scale in result['target_scales'] if scale in CORE_TARGETS]
@@ -299,6 +394,12 @@ class Screening:
                 if self.stage=='checking_in':self.stage='waiting_context'
             if fresh and result['transition_ready'] and self.stage=='waiting_context':
                 self.stage='collecting'
+                if self.core_only and self.preferred_item is None:
+                    for evidence in result['evidence']:
+                        item = CORE_CONCERN_ITEMS.get(evidence['domain'])
+                        if item and item[0] in self.target_scales and f'{item[0]}:{item[1]}' not in self.answers:
+                            self.preferred_item = item
+                            break
             if self.stage in ('waiting_context','collecting'):
                 self.review_status='follow_up' if self.stage=='collecting' else 'waiting_context'
         elif (self.review_mode=='post_session' and self.triggered and fresh
@@ -327,6 +428,10 @@ class Screening:
             self.version += 1
 
     def current(self):
+        if self.preferred_item:
+            scale, index = self.preferred_item
+            if scale in self.target_scales and f'{scale}:{index}' not in self.answers:
+                return scale, index, ITEMS[scale][index-1]
         return next(((scale, i+1, topic) for scale in self.target_scales
                      for i, topic in enumerate(ITEMS[scale])
                      if f'{scale}:{i+1}' not in self.answers), None)
@@ -351,6 +456,57 @@ class Screening:
             self.seen.discard(entry.message_id)
             self.observe(entry)
         return len(self.answers)!=before
+
+    def open_core_followup(self, entry, text, self_report):
+        if not self.core_only or self.history_danger_unresolved or declines_collection(text, question_pending=bool(self.question_key)):
+            return False
+        requested = bool(re.fullmatch(r'(?:我)?(?:现在)?(?:想|愿意|希望)(?:做|开始|继续|恢复)(?:一下|一次|个)?(?:心理|近况|情绪)(?:辅助)?(?:自评|筛查|评估)[吧呀。！!]*', text))
+        if self.stage not in ('companionship', 'waiting_context') and not (
+                requested and self.stage in ('declined', 'paused')):
+            return False
+        if re.search(r'崩溃|很痛苦|撑不住|喘不过气|恐慌|让我先说完|还想继续(?:说|倾诉)', text):
+            return False
+        item = self_report[:2] if self_report else core_concern_item(text)
+        if not item and not requested:
+            return False
+        if requested and self.stage in ('declined', 'paused'):
+            self.stage = 'waiting_context' if self.triggered else 'companionship'
+        if item:
+            scale, index = item
+        else:
+            current = self.current()
+            scale, index = current[:2] if current else ('PHQ-9', 2)
+        if not self.triggered:
+            self.concern([entry.message_id], 'current-core-followup-v1', [scale])
+        elif scale not in self.target_scales:
+            self.target_scales.append(scale)
+        if f'{scale}:{index}' not in self.answers:
+            self.preferred_item = (scale, index)
+        self.stage = 'collecting'
+        self.review_status = 'follow_up'
+        self.detector_status = 'checked'
+        self.version += 1
+        return True
+
+    def save_explicit_answer(self, scale, index, value, entry, *, standalone=False):
+        answer = dict(value=value, evidence_ids=[entry.message_id],
+                      confirmation_method='explicit_self_report' if standalone else 'explicit_frequency_answer',
+                      extraction_version='explicit-frequency-v3' if self.core_only else 'explicit-frequency-v2')
+        if standalone:
+            answer['window_context_id'] = entry.message_id
+        else:
+            answer.update(confirmation_context_id=(self.question_followup or self.question_context).message_id,
+                          question_context_id=self.question_context.message_id,
+                          window_context_id=(self.window_context or self.question_context).message_id)
+        self.answers[f'{scale}:{index}'] = answer
+        self.detector_status, self.collection_feedback = 'checked', None
+        self.pending,self.confirmation_asked,self.candidate_context=None,False,None
+        self.question_key,self.question_context,self.question_followup=None,None,None
+        self.observations=[o for o in self.observations if (o['scale'],o['item'])!=(scale,index)]
+        if scale=='PHQ-9' and index==9 and value>0:
+            self.stage='urgent';self.history_danger_unresolved=True
+        elif not self.current():
+            self.stage='complete'
 
     def observe(self, entry):
         if self.enabled and entry.role == 'assistant' and entry.final:
@@ -392,6 +548,11 @@ class Screening:
                         self.question_followup=entry
                     else:
                         self.question_key,self.question_context,self.question_followup=None,None,None
+                        if self.core_only and self.stage=='collecting' and not self.pending and not self.end_after_response:
+                            feedback = '刚才先回应了感受。用户愿意继续聊时，下一次回应请接上当前条目的两周频率问题。'
+                            if getattr(self,'collection_feedback',None)!=feedback:
+                                self.collection_feedback=feedback
+                                self.version+=1
                 elif (re.search(r'两周|十四天',entry.text) and any(cue in entry.text for cue in TOPIC_CUES[scale][index-1])
                         and re.search(r'[？?]|吗|呢|如何|怎么样|有没有|多少|频繁',entry.text)):
                     self.question_key=f'{scale}:{index}'
@@ -412,6 +573,7 @@ class Screening:
             return
         self.seen.add(entry.message_id)
         text = entry.text.strip()
+        self_report = core_self_report(text) if self.core_only and not self.history_danger_unresolved else None
         before = (self.stage, len(self.answers), self.pending, self.end_after_response)
         # New speech can withdraw a previous wish to end, including a danger signal.
         self.end_after_response=False
@@ -431,6 +593,9 @@ class Screening:
             self.closing_question_asked=False
         elif (self.stage=='collecting' and re.fullmatch(r'(好的[，,]?)?那?(我们)?(就|先)?(结束对话|聊到这里|不聊了|下次再聊)(吧|了)?[。！!，, ]*',text)):
             self.end_after_response=True
+        elif self.open_core_followup(entry, text, self_report):
+            if self_report and f'{self_report[0]}:{self_report[1]}' not in self.answers:
+                self.save_explicit_answer(*self_report, entry, standalone=True)
         elif self.stage not in ('declined', 'urgent', 'complete'):
             if declines_collection(text, question_pending=bool(self.question_key)):
                 self.action('decline')
@@ -455,23 +620,14 @@ class Screening:
             elif self.stage == 'collecting':
                 if re.search(r'先停|休息一下|不舒服|有点难受|崩溃|很痛苦|撑不住|喘不过气|恐慌', text):
                     self.action('pause')
+                elif self_report and self_report[0] in self.target_scales and f'{self_report[0]}:{self_report[1]}' not in self.answers:
+                    self.save_explicit_answer(*self_report, entry, standalone=True)
                 elif (self.streamlined and self.question_context is not None
                       and self.question_key and self.question_key not in self.answers
                       and frequency_answer(text,OPTIONS_BY_SCALE[self.current()[0]],(self.question_followup or self.question_context).text,self.question_context.text) is not None):
                     scale,index=self.question_key.split(':');index=int(index)
                     value=frequency_answer(text,OPTIONS_BY_SCALE[scale],(self.question_followup or self.question_context).text,self.question_context.text)
-                    self.detector_status='checked'
-                    self.collection_feedback=None
-                    context_id=self.question_context.message_id
-                    self.answers[f'{scale}:{index}']=dict(value=value,evidence_ids=[entry.message_id],
-                        confirmation_context_id=(self.question_followup or self.question_context).message_id,question_context_id=context_id,window_context_id=(self.window_context or self.question_context).message_id,
-                        confirmation_method='explicit_frequency_answer',extraction_version='explicit-frequency-v2')
-                    self.pending,self.confirmation_asked,self.candidate_context=None,False,None
-                    self.question_key,self.question_context,self.question_followup=None,None,None
-                    self.observations=[o for o in self.observations if (o['scale'],o['item'])!=(scale,index)]
-                    if scale=='PHQ-9' and index==9 and value>0:
-                        self.stage='urgent';self.history_danger_unresolved=True
-                    elif not self.current():self.stage='complete'
+                    self.save_explicit_answer(scale,index,value,entry)
                 elif (self.pending and self.confirmation_asked
                         and re.fullmatch(r'(是的|对|没错|确认|嗯，对)[。！! ]*', text)):
                     scale, index, _ = self.current()
@@ -617,6 +773,9 @@ class Screening:
             return base + conversational_style + (f'自然复述并确认：最近两周，“{topic}”出现的情况是“{option}”，我这样理解对吗？'
                            '保留用户描述的含义，不引导选择；不换话题、不要求报具体天数。')
         options=OPTIONS_BY_SCALE[self.current()[0]]
+        opener = CORE_OPENERS.get(self.current()[:2]) if self.core_only else None
+        if opener:
+            conversational_style += f'可直接采用这个自然问法：“{opener}”先回应一句，再立即问这一个问题，等用户回答。'
         return base + conversational_style + (f'后台已根据对话线索安排进一步了解。下一次回应先接住用户经历，再自然衔接一个关于最近两周“{topic}”的简短问题，不要只说“你继续说”。'
                        f'若自由表达无法整理出频率，才温和澄清，选项为：{"、".join(options)}。'
                        '不引导选择，不猜测答案。已确认一个条目后，先简短回应，再自然衔接后台指定的下一项；不能把一轮通话限制成一个条目，也不要在尚缺信息时反复说随时再来聊。每次只问一个具体小问题，连续了解两三项后留出倾诉或休息空间，用户不愿意、痛苦或想结束时立即停止。')

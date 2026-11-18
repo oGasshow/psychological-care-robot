@@ -3,8 +3,7 @@
 .care-top { background:#fff; border-bottom:1px solid var(--line); padding:18px 4%; display:flex; gap:24px; justify-content:space-between; align-items:center; }
 .care-brand { font-size:23px; font-weight:700; letter-spacing:.04em; }
 .care-brand small { display:block; font-size:12px; font-weight:400; color:var(--muted); letter-spacing:.12em; }
-.care-anon { text-align:right; font-size:14px; }
-.care-anon strong { font-variant-numeric:tabular-nums; }
+.care-account { text-align:right; font-size:14px; overflow-wrap:anywhere; }
 .care-nav { display:flex; flex-wrap:wrap; gap:8px; padding:0 4%; background:white; border-bottom:1px solid var(--line); }
 .care-nav a { padding:13px 18px; text-decoration:none; color:var(--muted); border-bottom:3px solid transparent; }
 .care-nav a.active { border-color:var(--green); color:var(--green); font-weight:700; }

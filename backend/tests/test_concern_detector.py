@@ -62,7 +62,7 @@ def test_normal_first_turn_can_start_core_collection_without_history(monkeypatch
         monitor=ScreeningMonitor(s,update,history=[entry('old','以前睡不好')])
         task=asyncio.create_task(monitor.run())
         try:
-            turn=entry('first','我心情低落，做什么都没兴趣。')
+            turn=entry('first','这阵子上班时总觉得做什么都没意思。')
             s.observe(turn)
             monitor.observe(turn)
             await asyncio.wait_for(updated.wait(),2)
@@ -101,7 +101,7 @@ def test_normal_early_review_rechecks_after_reply_without_requiring_another_user
         monitor=ScreeningMonitor(s,update,history=[entry('old','历史发言')])
         task=asyncio.create_task(monitor.run())
         try:
-            turn=entry('u','我觉得很低落，想聊聊这件事。')
+            turn=entry('u','这阵子经常觉得生活没什么意思。')
             s.observe(turn)
             monitor.observe(turn)
             await asyncio.wait_for(started.wait(),2)
