@@ -1,8 +1,10 @@
 """Read conversational collection separately from formal/fixture assessments."""
 from copy import deepcopy
 from ..robot_records import RecordMessage,RecordSession
-from ..voice.screening import CollectionTrace,ScreeningResult,core_self_report,has_collected_items
+from ..voice.screening import CollectionTrace,ScreeningResult,ITEMS,OPTIONS_BY_SCALE,core_self_report,has_collected_items
 from .models import InputRevision
+from .scale_catalog import session_score
+from .session_checkin import SessionCheckin, checkin_scores
 
 
 def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit=100,session_only=False):
@@ -11,6 +13,8 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
     if session_ids is not None:
         query=query.filter(RecordSession.id.in_(session_ids))
     sessions=query.order_by(RecordSession.id.desc()).limit(limit).all()
+    checkins = {row.session_id: row for row in db.query(SessionCheckin).filter(
+        SessionCheckin.owner == owner, SessionCheckin.session_id.in_([session.id for session in sessions])).all()}
     items=[]
     for session in sessions:
         trace=db.get(CollectionTrace,session.id)
@@ -23,7 +27,8 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
             detector_status=progress.get('detector_status','not_recorded'),scales=[],
             observations=progress.get('observations',[]),history_session_ids=progress.get('history_session_ids',[]),
             history_danger_unresolved=progress.get('history_danger_unresolved',False),
-            source_status='no_saved_collection',verification_status='unverified')
+            source_status='no_saved_collection',verification_status='unverified',
+            is_closed=session.state=='closed',current_session_scores=[],checkin_scores=checkin_scores(checkins.get(session.id)))
         from ..voice.demo_reconciliation import DemoAnswerReview
         job=db.get(DemoAnswerReview,session.external_session_id)
         if job and job.owner==owner:
@@ -35,6 +40,8 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
             valid=True
             references=[]
             for scale in payload.get('scales',[]):
+                current_points=[]
+                options=OPTIONS_BY_SCALE.get(scale['scale'],[])
                 answer_times=[];answer_sessions=set()
                 for index,answer in enumerate(scale.get('items',[])):
                     if not answer:continue
@@ -60,7 +67,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                     elif context is None or context.role!='assistant' or context.text_status!='completed':
                         item_valid=False
                     elif direct and user_refs and user_refs[0]:
-                        from ..voice.screening import frequency_answer,OPTIONS_BY_SCALE,TOPIC_CUES,question_item
+                        from ..voice.screening import frequency_answer,TOPIC_CUES,question_item
                         import re
                         item_valid&=bool(anchor is not None and window is not None and anchor.role=='assistant' and window.text_status=='completed'
                             and question_item(anchor.content if re.search(r'两周|十四天|14天',anchor.content) else '最近两周，'+anchor.content,scale['scale'])==index+1
@@ -69,6 +76,10 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                             and any(cue in anchor.content for cue in TOPIC_CUES[scale['scale']][index]))
                     linked=[m.id for m in messages]
                     if allowed_record_ids is not None and not set(linked)<=allowed_record_ids:item_valid=False
+                    value=answer.get('value')
+                    if (item_valid and messages and all(m.recording_session_id==session.id for m in messages)
+                            and type(value) is int and 0 <= value < len(options)):
+                        current_points.append(value)
                     if session_only and not item_valid:
                         scale['items'][index]=None
                         continue
@@ -78,10 +89,22 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                 scale['source_recording_session_ids']=sorted(answer_sessions)
                 if session_only:
                     scale['answered']=sum(a is not None for a in scale.get('items',[]))
+                if current_points and len(current_points)<=len(ITEMS[scale['scale']]):
+                    row['current_session_scores'].append(session_score(scale['scale'],current_points))
             row.update(scales=payload['scales'],source_status='current_original_text' if valid else 'needs_revalidation',
                 source_record_ids=sorted(set(references)))
             if not valid:
                 for scale in row['scales']:
                     scale.update(total=None,status='needs_revalidation')
+            else:
+                for scale in row['scales']:
+                    options = OPTIONS_BY_SCALE.get(scale['scale'])
+                    if not options:
+                        continue
+                    maximum = len(options)-1
+                    points = [item['value'] for item in scale.get('items',[]) if item
+                              and type(item.get('value')) is int and 0 <= item['value'] <= maximum]
+                    scale['partial_score'] = sum(points) if points else None
+                    scale['partial_max'] = len(points)*maximum
         items.append(row)
     return items

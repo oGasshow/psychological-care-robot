@@ -7,7 +7,9 @@ export default function ScaleSummaries({items,readings=[],model=false,latest=fal
  function cards(values:ScaleSummary[]){return <div className="scale-summary-grid">{values.map(s=><article className="scale-summary-card" key={s.id} data-testid={`scale-summary-${s.scale_id}`}>
   <header><span className={`scale-kind ${s.kind==='standard_reference'?'standard':'custom'}`}>{s.kind==='standard_reference'?'标准量表 · 对话辅助':'项目自定义指标'}</span><span>{statusText[s.status]||s.status}</span></header>
   <h3>{s.name}</h3><p className="scale-purpose">{s.purpose}</p>
-  <div className="scale-number">{s.score==null?<strong className="scale-no-score">{s.status==='not_collected'?'尚无分数':'暂不计总分'}</strong>:<><strong>{s.score}</strong><span>/ {s.max_score} 分</span></>}</div>
+  <div className="scale-number">{s.score!=null?<><strong>{s.score}</strong><span>/ {s.max_score} 分</span></>:
+    s.partial_score!=null?<><strong>{s.partial_score}</strong><span>/ {s.partial_max} 分 · 已答小计</span></>:
+    <strong className="scale-no-score">{s.status==='not_collected'?'尚无对话采集结果':'等待核实回答'}</strong>}</div>
   <p className="scale-completion">已确认 {s.answered}/{s.item_count} 项 · 回顾范围：{s.recall_window}</p>
   {s.score!=null&&<><div className={`scale-meter ${s.kind}`} role="meter" aria-label={s.name+'辅助合计'} aria-valuenow={s.score} aria-valuemin={0} aria-valuemax={s.max_score}><span style={{width:`${s.score/s.max_score*100}%`}}/></div><p className="scale-band">{s.reference_band?`原量表分段参考：${s.reference_band}`:'频率合计 · 无临床分界'}</p></>}
   <p className="scale-meaning">{s.meaning}</p>

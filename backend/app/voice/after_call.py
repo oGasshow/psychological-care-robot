@@ -200,7 +200,9 @@ class ReviewWorker:
             plan = read_plan_in_db(db, row.owner, bool(target.is_test))
             already_completed = bool(plan and not plan['needs_collection'] and
                 plan.get('completed_at') and plan['completed_at'] >= (target.ended_at or target.started_at))
-            if result['decision'] == 'follow_up' and not already_completed:
+            stopped = bool(plan and plan['status'] in ('declined', 'paused'))
+            apply_task = result['decision'] == 'follow_up' and not already_completed and not stopped
+            if apply_task:
                 controller = Screening(True, policy.notice_version)
                 controller.review_mode = 'post_session'
                 controller.core_only = True
@@ -211,7 +213,7 @@ class ReviewWorker:
                 store_plan_in_db(db, row.owner, bool(target.is_test), controller)
             row.state, row.error_code, row.next_retry_at = 'succeeded', None, None
             row.result = dict(decision=result['decision'], detector_version=result['detector_version'],
-                target_scales=result['target_scales'], applied_to_task=result['decision'] == 'follow_up' and not already_completed)
+                target_scales=result['target_scales'], applied_to_task=apply_task)
         return True
 
     def step(self):
@@ -243,7 +245,7 @@ def public_reviews_in_db(db, uid, is_test, limit=20):
         'failed': '后台复核暂未完成，可重试；未据此认定不需要进一步了解。',
         'insufficient_data': '已保存信息不足，后续会话将结合历史继续了解。',
         'invalidated': '原话或来源已变化，需要重新复核。',
-        'succeeded': '后台复核已完成；未完成的采集任务会在后续会话继续。'}
+        'succeeded': '后台已复核本次对话。自动采集依照账号当前状态继续、暂停或停止。'}
     rows = db.query(AfterCallReview).join(RecordSession,
         RecordSession.id == AfterCallReview.session_id).filter(AfterCallReview.owner == uid,
         RecordSession.user_id == uid, RecordSession.is_test == is_test,

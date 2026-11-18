@@ -226,3 +226,6 @@
 @media print{.care-main>[data-testid="deployment-mode"]{display:none!important}.scale-summary-card .scale-items{display:none!important}.scale-summary-card{font-size:9pt}.scale-summary-card h3{font-size:13pt}.scale-summary-card details{font-size:9pt}.scale-summary-card .scale-number strong{font-size:28pt}.scale-summaries>.report-section-heading,.scale-summaries>p,.scale-trends>.report-section-heading{break-after:avoid}.report-template .report-limits{break-inside:auto}.report-template .report-limits h2{break-after:avoid}}
 @media print{.scale-trends:has(.scale-trend-group)+.scale-summaries{break-before:page}}
 @media print{.report-template .scale-unused>div{display:none!important}.report-template .scale-unused{break-inside:avoid}}
+.session-checkin-questions { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); gap:16px; margin:14px 0; }
+.session-checkin-questions label { display:grid; gap:8px; font-weight:600; }
+.session-checkin-questions select { min-height:40px; padding:8px; border:1px solid var(--line); border-radius:8px; background:#fff; }

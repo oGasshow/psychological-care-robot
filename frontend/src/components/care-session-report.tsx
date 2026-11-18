@@ -3,14 +3,14 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import Link from 'next/link';
 import {api,ApiError,date,insights} from '@/lib/care-api';
-import type {Page,SessionRecord} from '@/lib/care-types';
+import type {Page,SessionRecord,SessionScore} from '@/lib/care-types';
 import CareShell,{ErrorBox} from './care-shell';
+import SessionCheckin from './care-session-checkin';
 
-interface Score {scale_id:string;name:string;score:number;answered_max:number;answered:number;required:number;full_max:number}
 interface Wording {summary:string;suggestions:string[]}
 interface SessionReport extends Wording {
   username:string;started_at:string;ended_at:string;generated_at:string;is_test:boolean;
-  user_turns:number;emotion_counts:Record<string,number>;scores:Score[];frequencies:Record<string,number>;
+  user_turns:number;emotion_counts:Record<string,number>;scores:SessionScore[];frequencies:Record<string,number>;
   support_notice:boolean;source_snapshot_hash:string;
 }
 
@@ -106,6 +106,9 @@ export default function SessionReportPage({printMode=false}:{printMode?:boolean}
     </div>
     <div className="care-no-print" role="status">{busy?'正在生成本次对话报告…':listing?'正在读取会话…':''}</div>
     <ErrorBox error={error}/>
+    {value&&!printMode&&<SessionCheckin key={selected} sessionId={Number(selected)}
+      onSaved={scores=>setValue(previous=>previous===value?{...previous,
+        scores:[...scores,...previous.scores.filter(s=>s.source!=='session_checkin')]}:previous)}/>}
     {value&&<Report value={value}/>}
   </CareShell>;
 }
@@ -124,8 +127,8 @@ function Report({value}:{value:SessionReport}){
     <section><h2>本次评分与采集覆盖率</h2>
       {value.scores.length?value.scores.map(s=>{
         const coverage=Math.round(100*s.answered/s.required);
-        return <div className="scale-summary-card session-score" key={s.scale_id}>
-          <h3>{s.name}</h3><p><strong>{s.score} / {s.answered_max} 分</strong> · {s.answered===s.required?'本次对话辅助合计':'本次已答条目小计'}</p>
+        return <div className="scale-summary-card session-score" key={`${s.scale_id}-${s.source}`}>
+          <h3>{s.name}</h3><p><strong>{s.score} / {s.answered_max} 分</strong> · {s.source==='session_checkin'?'本次补充自评小计':s.answered===s.required?'本次对话辅助合计':'本次已答条目小计'}</p>
           <p>采集覆盖率 <strong>{coverage}%</strong>（{s.answered}/{s.required} 项，完整满分 {s.full_max} 分）</p>
           <progress aria-label={s.name+'采集覆盖率'} max={s.required} value={s.answered}/>
         </div>;

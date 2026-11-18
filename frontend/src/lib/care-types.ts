@@ -59,6 +59,11 @@ export interface TrendsData { emotion_groups?: TrendGroup[]; assessment_groups?:
 export interface CollectionScale {
   scale: string; display_name?: string; answered: number; required: number; total?: number | null;
   max_score?: number; direction?: string; score_kind?: string;
+  partial_score?: number | null; partial_max?: number;
+}
+export interface SessionScore {
+  scale_id: string; name: string; score: number; answered_max: number; answered: number;
+  required: number; full_max: number; source: 'conversation_assisted' | 'session_checkin';
 }
 export interface CollectionObservation { display_name?: string; scale: string; item: number; status: string }
 export interface CollectionResult {
@@ -68,6 +73,7 @@ export interface CollectionResult {
   history_danger_unresolved?: boolean;
   recording_session_id: number; started_at: string; is_test: boolean; stage: string; detector_status: string;
   history_session_ids?: number[]; observations?: CollectionObservation[]; source_status: string; scales?: CollectionScale[];
+  is_closed?: boolean; current_session_scores?: SessionScore[]; checkin_scores?: SessionScore[];
 }
 export interface CollectionPlan { needs_collection: boolean; status: string; scales: CollectionScale[] }
 export interface AssessmentsData {
@@ -158,6 +164,7 @@ export type VoiceEvent = AudioDelta | ScreeningStatus | RecordingReceipt | Colle
   | { type: 'dialogue.finished' | 'session.ready' | 'playback.clear' | 'screening.policy_applied' | 'screening.detector_checked' | 'playback.status' };
 
 export interface ScaleSummary {
+  partial_score?:number|null;partial_max?:number|null;
  id:string;scale_id:string;name:string;kind:string;item_count:number;max_score:number;answered:number;score:number|null;
  status:string;recall_window:string;purpose:string;meaning:string;limitation:string;reference_band:string|null;item9_attention:boolean;
  bands:{min:number;max:number;label:string}[];reference:{title:string;url:string;doi:string}|null;

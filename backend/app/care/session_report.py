@@ -6,12 +6,10 @@ from types import SimpleNamespace
 
 from ..models import User
 from ..robot_records import RecordSession, now, owned, summary
-from ..voice.screening import OPTIONS_BY_SCALE
 from .collection_history import collection_history
 from .report_facts import build_facts, rules_narrative, selected_messages
 from .reports import trends_data
 from .safety_notice import dialogue_danger_notice
-from .scale_catalog import definition
 from .service import CareError, effective, exclusion
 
 
@@ -32,21 +30,8 @@ def session_report(db, uid, sid):
     facts['single_session'] = True
     collections = collection_history(db, uid, session_ids=[sid],
         allowed_record_ids={row.id for row in rows}, session_only=True)
-    scores = []
-    for collection in collections:
-        for scale in collection['scales']:
-            scale_id = scale['scale']
-            if scale_id not in OPTIONS_BY_SCALE:
-                continue
-            instrument = definition(scale_id)
-            maximum = len(OPTIONS_BY_SCALE[scale_id]) - 1
-            values = [a.get('value') for a in scale.get('items', []) if a]
-            values = [v for v in values if type(v) is int and 0 <= v <= maximum]
-            if not values or len(values) > instrument['item_count']:
-                continue
-            scores.append(dict(name=instrument['name'], scale_id=scale_id,
-                score=sum(values), answered_max=len(values)*maximum, answered=len(values),
-                required=instrument['item_count'], full_max=instrument['max_score']))
+    scores = [score for collection in collections for score in
+              (*collection['checkin_scores'], *collection['current_session_scores'])]
     frequencies = {}
     for label in ('从不','完全没有','较少','偶尔','有时','经常','几乎总是','有几天','超过一半的天数','几乎每天'):
         count = sum(len(re.findall(label, m['effective_content'])) for m in selected_messages(report_data))

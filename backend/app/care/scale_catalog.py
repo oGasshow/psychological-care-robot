@@ -23,6 +23,14 @@ def definition(scale):
             if standard else '项目自定义频率指标，没有经验证的临床分界，不能换算为 PHQ-9、GAD-7 或作出诊断。'))
 
 
+def session_score(scale,points,source='conversation_assisted'):
+    instrument=definition(scale)
+    maximum=len(OPTIONS_BY_SCALE[scale])-1
+    return dict(scale_id=scale,name=instrument['name'],source=source,score=sum(points),
+        answered=len(points),answered_max=len(points)*maximum,required=instrument['item_count'],
+        full_max=instrument['max_score'])
+
+
 def summarize(collections,expected=None):
     actual={s['scale'] for row in collections for s in row.get('scales',[]) if s['scale'] in ITEMS}
     scales=list(dict.fromkeys(['PHQ-9','GAD-7',*(expected or []),*sorted(actual)]))
@@ -52,6 +60,7 @@ def summarize(collections,expected=None):
                     record_ids=[r['record_id'] for r in (a or {}).get('source_refs',[])]))
             source_ids=row.get('source_record_ids',[])
             result=dict(answered=answered,score=total,status=status,episode_id=episode,
+                partial_score=s.get('partial_score') if valid else None,partial_max=s.get('partial_max') if valid else None,
                 source_status=row['source_status'],source_record_ids=source_ids,recording_session_ids=sorted(set(
                     s.get('source_recording_session_ids',[])+[ref['recording_session_id'] for a in s.get('items',[]) if a for ref in a.get('source_refs',[])])),items=items,is_test=row['is_test'])
         else:
