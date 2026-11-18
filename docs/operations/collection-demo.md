@@ -8,7 +8,7 @@
 
 | 模式 | 双击入口 | 网页入口与范围 |
 |---|---|---|
-| 正常模式 | [Open-NormalMode.cmd](../../Open-NormalMode.cmd) | 打开当前正常服务的 `/robot-care/voice`；具体端口以窗口显示为准。完整 PHQ-9／GAD-7 和六类指标，通话后复核、跨会话继续 |
+| 正常模式 | [Open-NormalMode.cmd](../../Open-NormalMode.cmd) | 用当前本地源码启动并打开 `/robot-care/voice`，沿用本机当前数据；端口以窗口为准。核心 PHQ-9／GAD-7，支持通话后复核和跨会话继续 |
 | 快速采集演示 | [Open-CollectionDemo.cmd](../../Open-CollectionDemo.cmd) | 默认 `http://127.0.0.1:3091/login`；登录后进入语音陪伴。单轮近况触发，采集3项自定义指标并按实际回答计分 |
 | 停止快速演示 | [Stop-CollectionDemo.cmd](../../Stop-CollectionDemo.cmd) | 仅停止快速演示的受控进程；正常服务继续运行 |
 

@@ -1,10 +1,12 @@
-﻿param([switch]$ApiOnly, [switch]$Stop, [switch]$NoBrowser, [switch]$Clean)
+﻿param([switch]$ApiOnly, [switch]$Stop, [switch]$NoBrowser, [switch]$Clean, [switch]$NoCredentials)
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $runtimeRoot = Join-Path $projectRoot 'runtime/direct_start'
 $activePointer = Join-Path $projectRoot 'runtime/active_runtime.txt'
 if (Test-Path -LiteralPath $activePointer) {
-    $candidateRoot = [IO.Path]::GetFullPath([IO.File]::ReadAllText($activePointer).Trim())
+    $candidateRoot = [IO.File]::ReadAllText($activePointer).Trim()
+    if (-not [IO.Path]::IsPathRooted($candidateRoot)) { $candidateRoot = Join-Path $projectRoot $candidateRoot }
+    $candidateRoot = [IO.Path]::GetFullPath($candidateRoot)
     $allowedRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'runtime')) + [IO.Path]::DirectorySeparatorChar
     if (-not $candidateRoot.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid runtime pointer.' }
     $runtimeRoot = $candidateRoot
@@ -83,9 +85,11 @@ try {
     Write-Host ''
     Write-Host ('API docs: ' + $apiAddress + '/docs') -ForegroundColor Green
     if (-not $ApiOnly) { Write-Host ('Web:      ' + $webAddress) -ForegroundColor Green }
-    Write-Host 'Local fictional demo account (do not publish these credentials):'
-    Write-Host ('Username: ' + $access.users[0].username)
-    Write-Host ('Password: ' + $access.users[0].password)
+    if (-not $NoCredentials) {
+        Write-Host 'Local fictional demo account (do not publish these credentials):'
+        Write-Host ('Username: ' + $access.users[0].username)
+        Write-Host ('Password: ' + $access.users[0].password)
+    }
     Write-Host ('Private runtime and logs: ' + $runtimeRoot)
     Write-Host 'Use Stop-Project.cmd to stop these services. Closing this window keeps them running.'
     if (-not $NoBrowser) {

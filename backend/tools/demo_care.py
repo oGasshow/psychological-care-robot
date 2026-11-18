@@ -314,6 +314,16 @@ def start(root,cfg,frontend=True):
         raise ValueError('collection_demo_requires_separate_frontend_build')
     if (root/'pids.json').exists():
         raise ValueError('Demo already has process records; stop it first')
+    ports = {'backend': cfg['backend_port']}
+    if frontend:
+        ports['frontend'] = cfg['frontend_port']
+    if len(set(ports.values())) != len(ports):
+        raise ValueError('Backend and frontend must use different ports')
+    for service, number in ports.items():
+        with socket.socket() as probe:
+            probe.settimeout(0.3)
+            if probe.connect_ex(('127.0.0.1', number)) == 0:
+                raise RuntimeError(f'Local {service} port {number} is already in use')
     root=root.resolve()
     if not cfg.get('runtime_id'):
         cfg['runtime_id']=secrets.token_hex(24)

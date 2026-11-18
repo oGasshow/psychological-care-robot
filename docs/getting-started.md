@@ -40,7 +40,7 @@ Set-Location psychological-care-robot
 
 | 脚本 | 用途与数据行为 |
 |---|---|
-| [Open-NormalMode.cmd](../Open-NormalMode.cmd) | 正常模式入口；健康的服务直接打开，保留完整采集与当前数据 |
+| [Open-NormalMode.cmd](../Open-NormalMode.cmd) | 日常普通版入口；使用本目录当前源码重启服务，前端按需重新构建，沿用当前数据库 |
 | [Open-CollectionDemo.cmd](../Open-CollectionDemo.cmd) | 快速采集演示入口；独立数据库与网页，3项确认后可显示实际合计；见[短演示步骤](operations/collection-demo.md) |
 | [Stop-CollectionDemo.cmd](../Stop-CollectionDemo.cmd) | 仅停止快速演示，正常模式继续运行 |
 | [Resume-Project.cmd](../Resume-Project.cmd) | 继续当前 active_runtime 的数据；日常调试优先使用 |
@@ -49,7 +49,7 @@ Set-Location psychological-care-robot
 | [Start-API.cmd](../Start-API.cmd) | 仅启动 API 与分析 worker |
 | [Stop-Project.cmd](../Stop-Project.cmd) | 按受控进程台账停止当前服务 |
 
-切到新演示库不会删除旧目录，但页面会看到另一套数据。希望继续已有对话时使用 Resume-Project.cmd。启动器的具体行为在 [Run-Project.ps1](../Run-Project.ps1)。
+切到新演示库不会删除旧目录，但页面会看到另一套数据。日常使用 `Open-NormalMode.cmd` 继续当前数据。拉取更新后仍双击同一入口，等窗口显示本地提交和网页地址。启动会重启服务，已有通话应先结束并保存。入口使用已安装的项目依赖，依赖锁或所需工具版本改变时按本页第一节更新环境。底层启动在 [Run-Project.ps1](../Run-Project.ps1)。
 
 启动窗口显示网页地址和本机演示账号。首次启动可能需要构建前端；运行数据、私有账号和日志保存在 runtime/，不提交 Git。
 

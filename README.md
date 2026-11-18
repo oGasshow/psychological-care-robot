@@ -10,7 +10,7 @@
 
 | 你想做什么 | 阅读或运行 |
 |---|---|
-| 正常模式：完整采集与跨会话跟进 | [Open-NormalMode.cmd](Open-NormalMode.cmd) |
+| 正常模式：启动当前本地版本并保留已有对话 | [Open-NormalMode.cmd](Open-NormalMode.cmd) |
 | 快速演示：短对话采集到实际计分 | [Open-CollectionDemo.cmd](Open-CollectionDemo.cmd)；[演示步骤与两个入口](docs/operations/collection-demo.md) |
 | 第一次安装、启动项目 | [快速开始](docs/getting-started.md) |
 | 继续本机已有对话数据 | 根目录 [Resume-Project.cmd](Resume-Project.cmd) |

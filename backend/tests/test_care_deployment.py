@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 
@@ -80,3 +81,19 @@ def test_N44_real_prepare_start_stop_and_restart_preserves_data(tmp_path,trace):
                       'same_anonymous_ids':True,'sessions_preserved':count,'prepare_existing_refused':True})
     finally:
         stop()
+
+
+def test_demo_start_rejects_a_listener_it_does_not_own(tmp_path):
+    runtime=tmp_path/'dedicated_virtual_demo'
+    env=dict(os.environ,PYTHONUTF8='1')
+    args=['tools/demo_care.py']
+    assert run([*args,'prepare','--runtime',str(runtime)],env).returncode==0
+    cfg=json.loads((runtime/'access.json').read_text(encoding='utf-8'))
+    with socket.socket() as listener:
+        listener.bind(('127.0.0.1',cfg['backend_port']))
+        listener.listen()
+        result=run([*args,'start','--runtime',str(runtime),'--no-frontend'],env)
+        assert result.returncode!=0 and 'already in use' in result.stderr
+        assert listener.getsockname()[1]==cfg['backend_port']
+    assert not (runtime/'pids.json').exists()
+    assert not (runtime/'demo.db').exists()
