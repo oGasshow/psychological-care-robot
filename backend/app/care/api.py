@@ -77,6 +77,8 @@ def demo_enabled():
 
 def check_query(request:Request):
     allowed={'limit','cursor'} if request.url.path.endswith('/analyses') else {'from','to'} if request.url.path.endswith('/trends') else set()
+    if request.url.path.endswith('/reports/window'):
+        allowed={'time_from','time_to'}
     if any(key not in allowed for key in request.query_params):
         raise CareError(422,'validation_error')
     if any(len(request.query_params.getlist(key))>1 for key in allowed):
@@ -239,6 +241,15 @@ def report_narrative(body:NarrativeBody,uid=Depends(owner)):
     if latest['source_snapshot_hash']!=body.source_snapshot_hash:
         raise CareError(409,'report_sources_changed')
     return dict(source_snapshot_hash=body.source_snapshot_hash,narrative=value)
+
+@router.get('/reports/window')
+def preview_window_report(time_from: UTCText, time_to: UTCText, uid=Depends(owner)):
+    from .session_report import window_report
+    if time_from >= time_to:
+        raise CareError(422, 'validation_error')
+    with transaction() as db:
+        return window_report(db, uid, time_from, time_to)
+
 
 @router.get('/reports/session/{sid}')
 def preview_session_report(sid: ResourceID, uid=Depends(owner)):

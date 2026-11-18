@@ -1,6 +1,7 @@
 'use client';
 
 import {useCallback,useEffect,useRef,useState} from 'react';
+import Link from 'next/link';
 import {api,ApiError,date,insights} from '@/lib/care-api';
 import type {Page,SessionRecord} from '@/lib/care-types';
 import CareShell,{ErrorBox} from './care-shell';
@@ -8,7 +9,7 @@ import CareShell,{ErrorBox} from './care-shell';
 interface Score {scale_id:string;name:string;score:number;answered_max:number;answered:number;required:number;full_max:number}
 interface Wording {summary:string;suggestions:string[]}
 interface SessionReport extends Wording {
-  session_id:number;username:string;started_at:string;ended_at:string;generated_at:string;is_test:boolean;
+  username:string;started_at:string;ended_at:string;generated_at:string;is_test:boolean;
   user_turns:number;emotion_counts:Record<string,number>;scores:Score[];frequencies:Record<string,number>;
   support_notice:boolean;source_snapshot_hash:string;
 }
@@ -100,7 +101,8 @@ export default function SessionReportPage({printMode=false}:{printMode?:boolean}
       </select>
       {cursor&&<button className="care-btn secondary" disabled={listing} onClick={()=>void loadList(cursor)}>查看更多对话</button>}
       {selected&&!printMode&&<button className="care-btn secondary" disabled={busy} onClick={()=>void loadReport(Number(selected))}>重新生成</button>}
-      {value&&<button className="care-btn" disabled={busy} onClick={()=>void loadReport(value.session_id,true)}>更新并打印 / 保存 PDF</button>}
+      {value&&<button className="care-btn" disabled={busy} onClick={()=>void loadReport(Number(selected),true)}>更新并打印 / 保存 PDF</button>}
+      {!printMode&&<Link className="care-btn secondary" href="/robot-care/report/window">查看时间窗口汇总</Link>}
     </div>
     <div className="care-no-print" role="status">{busy?'正在生成本次对话报告…':listing?'正在读取会话…':''}</div>
     <ErrorBox error={error}/>

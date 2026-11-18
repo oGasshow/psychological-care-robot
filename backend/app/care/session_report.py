@@ -5,14 +5,14 @@ import re
 from types import SimpleNamespace
 
 from ..models import User
-from ..robot_records import now, owned, summary
+from ..robot_records import RecordSession, now, owned, summary
 from ..voice.screening import OPTIONS_BY_SCALE
 from .collection_history import collection_history
 from .report_facts import build_facts, rules_narrative, selected_messages
 from .reports import trends_data
 from .safety_notice import dialogue_danger_notice
 from .scale_catalog import definition
-from .service import CareError, effective
+from .service import CareError, effective, exclusion
 
 
 def session_report(db, uid, sid):
@@ -52,7 +52,7 @@ def session_report(db, uid, sid):
         count = sum(len(re.findall(label, m['effective_content'])) for m in selected_messages(report_data))
         if count:
             frequencies[label] = count
-    public = dict(session_id=sid, username=db.get(User, uid).username, started_at=session.started_at,
+    public = dict(username=db.get(User, uid).username, started_at=session.started_at,
         ended_at=session.ended_at, generated_at=stamp, is_test=bool(session.is_test),
         emotion_counts=data['emotion_counts'], scores=scores,
         user_turns=facts['eligible_user_text_count'], frequencies=frequencies,
@@ -64,14 +64,38 @@ def session_report(db, uid, sid):
     return dict(public, source_snapshot_hash=digest), facts
 
 
+def window_report(db, uid, start, end):
+    sessions = db.query(RecordSession).filter(
+        RecordSession.user_id == uid, RecordSession.state == 'closed',
+        RecordSession.started_at >= start, RecordSession.started_at < end).all()
+    complete = [row for row in sessions if summary(db, row)['is_complete']]
+    groups = []
+    for is_test in (False, True):
+        selected = [row.id for row in complete if bool(row.is_test) == is_test]
+        if not selected:
+            continue
+        totals = trends_data(db, uid, selected=selected, include_assessments=False)
+        groups.append(dict(is_test=is_test, conversation_count=len(selected),
+            emotion_counts=totals['emotion_counts'],
+            user_turns=sum(not exclusion(row) for row in totals['records'])))
+    return dict(username=db.get(User, uid).username, time_from=start, time_to=end,
+        generated_at=now(), groups=groups)
+
+
+INTERNAL_REFERENCE = re.compile(
+    r'[#＃]\s*\d+|(?:会话|记录|来源|用户|账号)(?:\s*(?:ID|编号|标识)\s*[:：]?\s*|\s*[#＃]\s*)\w+'
+    r'|\b(?:session_id|record_id|source_snapshot_hash)\b', re.IGNORECASE)
+
+
 def public_narrative(facts, value=None):
     value = value or rules_narrative(facts)
     content = value['content']
     overview = content['overview']['text']
-    if value.get('mode') != 'model':
+    if value.get('mode') != 'model' or INTERNAL_REFERENCE.search(overview):
         topics = list(dict.fromkeys(topic['title'] for topic in facts['topics']))[:3]
         overview = ('这次对话涉及' + '、'.join(topics) + '。可以从当时最在意的一件事说起，看看它带来了怎样的感受。'
                     if topics else '这次记录反映了你在交谈时的表达。回顾时，可以留意哪些事情让你感到轻松，哪些仍需要多一点支持。')
     return dict(summary=overview,
-        suggestions=[item['text'] for item in content['conversation_suggestions']] or
+        suggestions=[item['text'] for item in content['conversation_suggestions']
+                     if not INTERNAL_REFERENCE.search(item['text'])] or
         ['可以记下一件目前最在意的事，以及当时的感受和你希望得到的支持。'])

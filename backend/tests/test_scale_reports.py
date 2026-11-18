@@ -43,7 +43,7 @@ def test_public_report_uses_only_selected_session_even_with_inherited_items(acto
     assert report['username']=='virtual_a' and report['user_turns']==5
     assert [(v['scale_id'],v['answered'],v['required'],v['score'],v['answered_max'])
             for v in report['scores']]==[('GAD-7',5,7,6,15)]
-    assert not {'messages','source_references','report_facts','anonymous_id'} & report.keys()
+    assert not {'session_id','messages','source_references','report_facts','anonymous_id'} & report.keys()
     assert b.request('GET',path).status_code==404
     waiting=a.create('still_open').json()['recording_session_id']
     assert a.request('GET',f'/api/robot-insights/reports/session/{waiting}').status_code==409
@@ -57,6 +57,29 @@ def test_public_report_uses_only_selected_session_even_with_inherited_items(acto
     monkeypatch.setattr(report_narrative,'generate',generate)
     narrative=a.request('POST',path+'/narrative',json={'source_snapshot_hash':report['source_snapshot_hash']})
     assert narrative.status_code==200 and narrative.json()['summary']=='本轮虚构总结'
+
+    def numbered_summary(_):
+        return {'mode':'model','content':{'overview':{'text':'会话 #123 的记录'},
+            'conversation_suggestions':[{'text':'查看会话编号 567'}]}}
+
+    monkeypatch.setattr(report_narrative,'generate',numbered_summary)
+    narrative=a.request('POST',path+'/narrative',json={'source_snapshot_hash':report['source_snapshot_hash']})
+    assert narrative.status_code==200 and '123' not in narrative.text and '567' not in narrative.text
+
+
+def test_window_report_returns_only_aggregate_data(actors):
+    a,b=actors
+    seed(a)
+    seed(b)
+    a.create('not_finished',started_at=now())
+    path='/api/robot-insights/reports/window?time_from=2020-01-01T00:00:00Z&time_to=2099-01-01T00:00:00Z'
+    response=a.request('GET',path)
+    assert response.status_code==200
+    value=response.json()
+    assert set(value)=={'username','time_from','time_to','generated_at','groups'}
+    assert value['username']=='virtual_a'
+    assert value['groups']==[dict(is_test=True,conversation_count=2,user_turns=16,
+                                 emotion_counts=dict(positive=0,neutral=0,negative=0))]
 
 
 def test_public_report_has_soft_support_flag_without_exporting_raw_expression(actors):
