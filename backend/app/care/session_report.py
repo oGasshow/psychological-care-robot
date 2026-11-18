@@ -88,6 +88,12 @@ INTERNAL_REFERENCE = re.compile(
 ACTION_PHRASE = re.compile(
     r'(?:^|[，、：])\s*(?:建议|不妨|试着|下一步|如果愿意|下次可以)'
     r'|(?:可以|尝试|建议)\s*(?:先|把|去|从|找|跟|和|记录|联系|安排|留意|写|做|给|尝试|试着|考虑|选择|你|您)')
+ACTION_START = re.compile(
+    r'^(?:如果愿意[，,]\s*)?(?:下次|接下来|今天)?'
+    r'(?:建议你|建议您|建议|可以|不妨)?(?:先|试着|尝试|去)*'
+    r'(?:在[^，。；？！]{1,14}?(?:时|期间|间隙|前|后)[，,]?\s*)?'
+    r'(?:把|记下|记录|写下|拆分|选择|安排|留意|回顾|问问|找|联系|约|聊聊|说说|'
+    r'列出|整理|留出|散步|休息|给自己|(?:和|与|跟).{1,24}(?:说说|聊聊|散步))')
 
 
 def public_narrative(facts, value=None):
@@ -96,13 +102,19 @@ def public_narrative(facts, value=None):
     overview = content['overview']['text']
     if value.get('mode') == 'model':
         observations = [sentence for sentence in re.split(r'(?<=[。！？；])', overview)
-                        if not ACTION_PHRASE.search(sentence) and not INTERNAL_REFERENCE.search(sentence)]
+                        if not ACTION_PHRASE.search(sentence) and not ACTION_START.match(sentence.strip())
+                        and not INTERNAL_REFERENCE.search(sentence)]
         overview = ''.join(observations).strip()
     if value.get('mode') != 'model' or not overview:
         topics = list(dict.fromkeys(topic['title'] for topic in facts['topics']))[:3]
         overview = ('这次对话涉及' + '、'.join(topics) + '。'
                     if topics else '本次记录反映了交谈当时的表达，提供了一段近况的初步线索。')
-    return dict(summary=overview,
-        suggestions=[item['text'] for item in content['conversation_suggestions']
-                     if not INTERNAL_REFERENCE.search(item['text']) and item['text'].strip(' 。！？') not in overview] or
-        ['可以记下一件目前最在意的事，以及当时的感受和你希望得到的支持。'])
+    suggestions = []
+    for item in content['conversation_suggestions']:
+        for sentence in re.split(r'(?<=[。！？；])', item['text']):
+            sentence = sentence.strip()
+            if (ACTION_START.match(sentence) and not INTERNAL_REFERENCE.search(sentence)
+                    and sentence.strip('。！？；') not in overview and sentence not in suggestions):
+                suggestions.append(sentence)
+    return dict(summary=overview, suggestions=suggestions[:3] or
+                ['可以记下一件目前最在意的事，以及当时的感受和你希望得到的支持。'])
