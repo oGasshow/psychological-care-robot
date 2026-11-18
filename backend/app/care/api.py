@@ -206,7 +206,7 @@ def get_assessments(uid=Depends(owner)):
         from ..voice.api import test_data
         from ..voice.after_call import public_reviews,enabled as after_call_policy
         from ..voice.screening_policy import collection_demo_enabled
-        collections=collection_history(db,uid)
+        collections=collection_history(db,uid,verify_current=True)
         from .scale_catalog import summarize
         return dict(**assessments(db,uid),scale_summaries=summarize(collections),conversation_collections=collections,conversation_limit=100,
             collection_plan=public_plan(uid,test_data(),db=db),after_call_reviews=public_reviews(uid,test_data(),db=db),

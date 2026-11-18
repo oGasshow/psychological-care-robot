@@ -1,12 +1,13 @@
 """Read conversational collection separately from formal/fixture assessments."""
 from copy import deepcopy
 from ..robot_records import RecordMessage,RecordSession
-from ..voice.screening import CollectionTrace,ScreeningResult,ITEMS,OPTIONS_BY_SCALE,core_self_report,has_collected_items
+from ..voice.screening import CollectionTrace,ScreeningResult,ITEMS,OPTIONS_BY_SCALE,core_self_report,has_collected_items,recall_date,verify_saved_call_answers
 from .models import InputRevision
 from .scale_catalog import session_score
 
 
-def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit=100,session_only=False):
+def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit=100,session_only=False,
+                       verify_current=False,saved_rows=None):
     query=db.query(RecordSession).filter(RecordSession.user_id==owner,RecordSession.state!='deleted',
         RecordSession.source=='doubao_realtime')
     if session_ids is not None:
@@ -32,12 +33,12 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
             row['saved_answer_review']=dict(state=job.state,updated_at=job.updated_at)
         if payload:
             row.update(stage=payload.get('stage','not_recorded'),detector_status=payload.get('detector_status','not_recorded'))
+        current_items={}
         if payload and has_collected_items(payload):
             from ..voice.collection_sources import answer_records
             valid=True
             references=[]
             for scale in payload.get('scales',[]):
-                current_points=[]
                 options=OPTIONS_BY_SCALE.get(scale['scale'],[])
                 answer_times=[];answer_sessions=set()
                 for index,answer in enumerate(scale.get('items',[])):
@@ -76,7 +77,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                     value=answer.get('value')
                     if (item_valid and messages and all(m.recording_session_id==session.id for m in messages)
                             and type(value) is int and 0 <= value < len(options)):
-                        current_points.append(value)
+                        current_items[(scale['scale'],index+1)]=value
                     if session_only and not item_valid:
                         scale['items'][index]=None
                         continue
@@ -86,8 +87,6 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                 scale['source_recording_session_ids']=sorted(answer_sessions)
                 if session_only:
                     scale['answered']=sum(a is not None for a in scale.get('items',[]))
-                if current_points and len(current_points)<=len(ITEMS[scale['scale']]):
-                    row['current_session_scores'].append(session_score(scale['scale'],current_points))
             row.update(scales=payload['scales'],source_status='current_original_text' if valid else 'needs_revalidation',
                 source_record_ids=sorted(set(references)))
             if not valid:
@@ -103,5 +102,24 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                               and type(item.get('value')) is int and 0 <= item['value'] <= maximum]
                     scale['partial_score'] = sum(points) if points else None
                     scale['partial_max'] = len(points)*maximum
+        if (verify_current and session.state=='closed' and not row['demo_mode']
+                and progress.get('review_mode')=='post_session' and progress.get('triggered')
+                and progress.get('stage') in ('checking_in','waiting_context','collecting','complete')
+                and (not current_items or (payload or {}).get('window_end') in (None,recall_date(session.started_at)))):
+            transcript=saved_rows if saved_rows is not None else db.query(RecordMessage).filter_by(
+                recording_session_id=session.id).all()
+            if (len(transcript)==session.last_sequence_no
+                    and all(record.recording_session_id==session.id for record in transcript)
+                    and not db.query(InputRevision.record_id).filter(
+                        InputRevision.record_id.in_([record.id for record in transcript])).first()):
+                verified=verify_saved_call_answers(sorted(transcript,key=lambda record:record.sequence_no))
+                for key,answer in verified.items():
+                    scale,index=key.split(':')
+                    current_items.setdefault((scale,int(index)),answer['value'])
+        for scale in dict.fromkeys(key[0] for key in current_items):
+            points=[value for (identifier,index),value in current_items.items()
+                    if identifier==scale and 1<=index<=len(ITEMS[scale])]
+            if points:
+                row['current_session_scores'].append(session_score(scale,points))
         items.append(row)
     return items

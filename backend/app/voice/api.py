@@ -18,7 +18,7 @@ from . import upstream
 from .settings import settings
 from .recording import Recorder, directory as outbox_directory, internal_base, retry
 from .transcripts import Transcripts, Utterance, explicit_end_request, utc_now
-from .screening import Screening, ScreeningResult, save_result, has_collected_items
+from .screening import Screening, ScreeningResult, save_result, has_collected_items, recall_date
 from .screening_policy import CollectionPolicy, collection_policy, collection_targets,collection_demo_enabled
 from .screening_monitor import ScreeningMonitor
 from .collection_plan import read_plan,restore,store_plan,public_plan,has_saved_answers
@@ -352,6 +352,9 @@ async def live(ws:WebSocket):
                 after=plan.get('completed_at') if plan and not plan['needs_collection'] else None)
             controller.inherit(context)
             restore(controller,plan)
+            if (controller.core_only and controller.triggered and not controller.answers
+                    and controller.stage in ('waiting_context','checking_in')):
+                controller.window_end=recall_date(utc_now())
         else:context={'turns':[],'references':{}}
         async with upstream.connection(cfg,instructions=controller.instructions()) as (remote,created):
             await remote.send(json.dumps({'type':'input_audio_mute.commit'}))

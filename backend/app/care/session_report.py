@@ -29,7 +29,7 @@ def session_report(db, uid, sid):
     facts = build_facts(db, uid, scope, report_data)
     facts['single_session'] = True
     collections = collection_history(db, uid, session_ids=[sid],
-        allowed_record_ids={row.id for row in rows}, session_only=True)
+        allowed_record_ids={row.id for row in rows}, session_only=True,verify_current=True,saved_rows=rows)
     scores = [score for collection in collections for score in collection['current_session_scores']]
     frequencies = {}
     for label in ('从不','完全没有','较少','偶尔','有时','经常','几乎总是','有几天','超过一半的天数','几乎每天'):

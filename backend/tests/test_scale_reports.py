@@ -153,6 +153,68 @@ def test_core_short_conversation_persists_early_items_in_selected_report(actors)
     assert rows[0]['current_session_scores']==report['scores']
 
 
+def test_waiting_context_accepts_a_spoken_count_and_preserves_safety_followup():
+    s=setup_controller()
+    s.core_only=True
+    s.stage='waiting_context'
+    s.history_danger_unresolved=True
+    s.observe(entry('最近这两周，这种不开心的状态是不是大多时候都跟着你？','assistant'))
+    spoken=entry('是的，差不多这 5 天、6 天都这样。','user')
+    s.observe(spoken)
+    assert s.answers['PHQ-9:2']['value']==1
+    assert s.answers['PHQ-9:2']['evidence_ids']==[spoken.message_id]
+    assert s.stage=='waiting_context' and s.history_danger_unresolved
+
+
+def test_core_collection_adds_new_scale_and_follows_topics_out_of_order():
+    s=Screening(True)
+    s.core_only=s.direct_collection=True
+    s.review_mode='post_session'
+    s.observe(entry('我最近觉得心情很低落。','user'))
+    assert s.target_scales==['PHQ-9']
+    s.observe(entry('我最近反复很紧张。','user'))
+    assert s.target_scales==['PHQ-9','GAD-7']
+    assert s.current()[:2]==('GAD-7',1)
+    s.observe(entry('最近两周大概有几天感到紧张或焦虑？','assistant'))
+    s.observe(entry('有六天。','user'))
+    assert s.answers['GAD-7:1']['value']==1
+    s.observe(entry('我这两周还有睡不着的时候。','user'))
+    assert s.current()[:2]==('PHQ-9',3)
+    s.observe(entry('这两周有几天睡不着？','assistant'))
+    s.observe(entry('大概八九天。','user'))
+    assert [(key,value['value']) for key,value in s.answers.items()]==[('GAD-7:1',1),('PHQ-9:3',2)]
+    assert s.current()[:2] not in (('GAD-7',1),('PHQ-9',3))
+
+
+def test_report_rechecks_complete_call_without_writing_or_counting_vague_answers(actors):
+    from app.robot_records import transaction
+    from app.voice.screening import ScreeningResult
+    a,b=actors
+    s=setup_controller()
+    s.core_only=True
+    s.review_mode='post_session'
+    s.stage='waiting_context'
+    lines=[
+        ('assistant','最近这两周，这种不开心的状态是不是大多时候都跟着你？'),
+        ('user','是的，差不多这 5 天、6 天都这样。'),
+        ('assistant','最近两周是不是经常觉得累、没力气？'),
+        ('user','没有。'),
+        ('assistant','这几天睡得好吗？'),
+        ('user','大概五天都睡不好。'),
+    ]+[('assistant','你可以慢慢说。'),('user','我说说工作的事。')]*15
+    sid=legacy_call(a,s,lines)
+    route=f'/api/robot-insights/reports/session/{sid}'
+    assert b.request('GET',route).status_code==404
+    first=a.request('GET',route).json()
+    assert [(r['scale_id'],r['answered'],r['score']) for r in first['scores']]==[('PHQ-9',1,1)]
+    assert a.request('GET',route).json()['scores']==first['scores']
+    assessments=a.request('GET','/api/robot-insights/assessments').json()['conversation_collections']
+    assert assessments[0]['current_session_scores']==first['scores']
+    with transaction() as db:
+        assert db.get(ScreeningResult,sid) is None
+    assert not s.answers
+
+
 def test_standalone_frequency_appears_in_session_report(actors):
     a,_=actors
     s=Screening(True,'fictional-normal-v1')
@@ -182,7 +244,7 @@ def test_early_collection_does_not_override_context_and_safety(line,expected):
     assert s.stage==expected and not s.answers
 
 
-@pytest.mark.parametrize('line', ['有十五天', '有15天', '有25天', '大概七八天'])
+@pytest.mark.parametrize('line', ['有十五天', '有15天', '有25天', '大概七八天', '是的，差不多这 7 天、8 天都这样。'])
 def test_core_frequency_rejects_out_of_range_or_ambiguous_days(line):
     from app.voice.screening import OPTIONS,frequency_answer
     assert frequency_answer(line,OPTIONS,'最近两周，大概有几天觉得心情低落？') is None
