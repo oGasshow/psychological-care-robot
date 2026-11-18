@@ -83,24 +83,36 @@ def test_normal_early_review_excludes_non_core_targets():
         detector.validate(json.dumps(value),data)
 
 
-def test_normal_early_review_rechecks_after_reply_without_requiring_another_user_turn(monkeypatch):
+@pytest.mark.parametrize('history_pending',[False,True])
+def test_normal_early_review_rechecks_after_reply_without_requiring_another_user_turn(monkeypatch,history_pending):
     async def run():
         s=Screening(True)
         s.core_only=True
         s.review_mode='post_session'
+        if history_pending:
+            s.history_danger_unresolved=True
+            s.target_scales=['PHQ-9']
+            s.signals=['earlier-attention']
+            s.stage='checking_in'
         started, release, collecting=asyncio.Event(), asyncio.Event(), asyncio.Event()
         async def update():
             if s.stage=='collecting':
                 collecting.set()
         async def assess(data):
-            assert data['early_core'] and len([t for t in data['turns'] if t['role']=='user'])==1
+            assert bool(data.get('early_core')) is not history_pending
+            assert len([t for t in data['turns'] if t['role']=='user'])==(2 if history_pending else 1)
             started.set()
             await release.wait()
             return detector.validate(json.dumps(output(data)),data)
         monkeypatch.setattr(detector,'assess',assess)
-        monitor=ScreeningMonitor(s,update,history=[entry('old','历史发言')])
+        monitor=ScreeningMonitor(s,update,history=[] if history_pending else [entry('old','历史发言')])
         task=asyncio.create_task(monitor.run())
         try:
+            if history_pending:
+                first=entry('first','这两周心情持续低落。')
+                s.observe(first)
+                monitor.observe(first)
+                assert monitor.queue.empty() and s.stage=='checking_in'
             turn=entry('u','这阵子经常觉得生活没什么意思。')
             s.observe(turn)
             monitor.observe(turn)
@@ -110,7 +122,8 @@ def test_normal_early_review_rechecks_after_reply_without_requiring_another_user
             monitor.observe(reply)
             release.set()
             await asyncio.wait_for(collecting.wait(),2)
-            assert monitor.user_count==1
+            assert monitor.user_count==(2 if history_pending else 1)
+            assert s.history_danger_unresolved is history_pending
         finally:
             task.cancel()
             await asyncio.gather(task,return_exceptions=True)

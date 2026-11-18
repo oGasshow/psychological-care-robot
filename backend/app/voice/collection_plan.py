@@ -6,8 +6,9 @@ from sqlalchemy import Column,Integer,String,JSON,ForeignKey
 from ..database import Base,SessionLocal
 from ..robot_records import now,RecordSession,RecordMessage
 from ..care.models import InputRevision
-from .screening import ITEMS,SCALE_LABELS,OPTIONS_BY_SCALE
+from .screening import CollectionTrace,ITEMS,SCALE_LABELS,OPTIONS_BY_SCALE,declines_collection
 from .screening_policy import CORE_TARGETS
+from .transcripts import explicit_end_request
 
 class CollectionPlan(Base):
     __tablename__='robot_voice_collection_plans'
@@ -28,19 +29,47 @@ def read_plan(uid,is_test):
     with SessionLocal() as db:
         return read_plan_in_db(db,uid,is_test)
 
+
+def repair_legacy_stop(db,uid,is_test,data):
+    """Only repair the old stop when its original transcript proves a call sign-off."""
+    if data['status']!='declined' or data.get('demo_mode') or data.get('stop_reason'):
+        return
+    stopped=db.query(CollectionTrace,RecordSession).join(RecordSession).filter(
+        CollectionTrace.owner==uid,RecordSession.user_id==uid,RecordSession.is_test==is_test,
+        RecordSession.state=='closed',RecordSession.source=='doubao_realtime',
+        CollectionTrace.payload['episode_id'].as_string()==data['episode_id'],
+        CollectionTrace.payload['stage'].as_string()=='declined',
+    ).order_by(RecordSession.id).all()
+    if not stopped or stopped[0][0].payload.get('review_mode') is not None:
+        return
+    rows=db.query(RecordMessage).filter(RecordMessage.recording_session_id.in_([s.id for _,s in stopped]),
+        RecordMessage.role=='user',RecordMessage.text_status=='completed').order_by(
+        RecordMessage.recording_session_id,RecordMessage.sequence_no).all()
+    first_call=[row for row in rows if row.recording_session_id==stopped[0][1].id]
+    if (not first_call or not explicit_end_request(first_call[-1].content)
+            or '不想聊' not in first_call[-1].content
+            or any(declines_collection(row.content,question_pending=True) or db.get(InputRevision,row.id) for row in rows)):
+        return
+    data['status']='checking_in' if data.get('history_danger_unresolved') else 'waiting_context'
+    data['stop_reason']='legacy_call_end'
+
+
 def read_plan_in_db(db,uid,is_test):
     row=db.get(CollectionPlan,key(uid,is_test))
     if not row:return None
     data=deepcopy(row.payload)
+    repair_legacy_stop(db,uid,is_test,data)
     # Answers only survive if all original owned sources still exist and are unchanged.
     for item,answer in list(data.get('answers',{}).items()):
         from .collection_sources import answer_records
         _,valid=answer_records(db,uid,is_test,answer)
         if not valid:
             data['answers'].pop(item)
-            data.update(needs_collection=True,status='needs_revalidation')
+            data['needs_collection']=True
+            if data['status'] not in ('declined','paused'):data['status']='needs_revalidation'
     if (datetime.now(timezone(timedelta(hours=8))).date()-datetime.fromisoformat(data['window_end']).date()).days>=14 and data.get('needs_collection'):
-        data.update(answers={},status='needs_revalidation',window_end=datetime.now(timezone(timedelta(hours=8))).date().isoformat())
+        data.update(answers={},window_end=datetime.now(timezone(timedelta(hours=8))).date().isoformat())
+        if data['status'] not in ('declined','paused'):data['status']='needs_revalidation'
     data['updated_at']=row.updated_at
     return data
 
@@ -57,6 +86,7 @@ def restore(controller,data):
     controller.signals=list(data.get('signal_evidence',[]))
     controller.detector=data.get('detector_version')
     controller.trigger_origin=data.get('trigger_origin','context_model')
+    controller.stop_reason=data.get('stop_reason')
     controller.answers=deepcopy(data.get('answers',{}))
     controller.history_danger_unresolved|=data.get('history_danger_unresolved',False)
     if completed_task:controller.stage='complete'
@@ -93,7 +123,7 @@ def store_plan_in_db(db,uid,is_test,controller):
     payload=dict(needs_collection=not complete,status=status,episode_id=controller.episode_id,
         window_end=controller.window_end,target_scales=controller.target_scales,answers=controller.answers,
         signal_evidence=controller.signals,history_danger_unresolved=controller.history_danger_unresolved or controller.stage=='urgent',
-        demo_mode=controller.demo_mode,trigger_origin=controller.trigger_origin,
+        demo_mode=controller.demo_mode,trigger_origin=controller.trigger_origin,stop_reason=controller.stop_reason,
         detector_version=controller.detector,
         history_session_ids=controller.history_session_ids,observations=controller.observations,formal_assessment=False,
         completed_at=now() if complete else None)

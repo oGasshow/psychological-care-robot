@@ -55,7 +55,7 @@ TOPIC_CUES = {
     'social_comfort': [('不熟悉的人','权威','互动','交谈'),('群体','小组','表达'),('被注视','被评价','回避','不自在')],
 }
 POLARITY_GUARDS = {
-    ('PHQ-9',1): r'缺少兴趣|缺乏兴趣|没.{0,4}兴趣|不感兴趣|兴趣减退|提不起.{0,3}兴趣|提不起兴致|没.{0,4}乐趣|缺少.{0,5}乐趣',
+    ('PHQ-9',1): r'缺少兴趣|缺乏兴趣|没.{0,4}兴趣|不感兴趣|兴趣减退|兴趣.{0,5}变[小少]|提不起.{0,3}兴趣|提不起兴致|没.{0,4}乐趣|缺少.{0,5}乐趣',
     ('PHQ-9',7): r'难以集中|无法集中|注意力不集中|容易分心|难.{0,3}集中注意',
     ('GAD-7',4): r'难以放松|无法放松|不能放松|放松不下来|很难放松',
 }
@@ -270,6 +270,7 @@ class Screening:
         self.demo_mode = False
         self.direct_collection = False
         self.trigger_origin = 'context_model'
+        self.stop_reason = None
         self.stage = 'companionship'
         self.signals, self.target_scales, self.decisions = [], [], []
         self.answers, self.pending = {}, None
@@ -420,6 +421,7 @@ class Screening:
         previous = self.stage
         if action == 'decline' and self.stage not in ('urgent', 'complete'):
             self.stage, self.pending = 'declined', None
+            self.stop_reason = 'user_requested'
         elif action == 'pause' and self.stage == 'collecting':
             self.stage, self.pending = 'paused', None
         # ready/consent from older clients deliberately cannot authorize or
@@ -534,7 +536,13 @@ class Screening:
                 if self.streamlined:
                     if re.search(r'两周|十四天|14天',entry.text):self.window_context=entry
                     scoped=entry.text if re.search(r'两周|十四天|14天',entry.text) else ('最近两周，'+entry.text if self.window_context else entry.text)
-                    asked=question_item(scoped,scale)
+                    if self.core_only:
+                        matches=[(target,question_item(scoped,target)) for target in self.target_scales]
+                        matches=[(target,number) for target,number in matches if number]
+                        if len(matches)==1:scale,asked=matches[0]
+                        else:asked=None
+                    else:
+                        asked=question_item(scoped,scale)
                     if asked:
                         self.question_key=f'{scale}:{asked}' if f'{scale}:{asked}' not in self.answers else None
                         self.question_context=entry if self.question_key else None
@@ -545,6 +553,10 @@ class Screening:
                     elif (self.question_key and self.question_context and re.search(r'这种|这类|那种|这个感受|这种感受|频率|属于|程度',entry.text)
                           and re.search(r'出现|频率|多久|哪种|属于|有时|偶尔|经常|从不|较少',entry.text)
                           and re.search(r'[？?]|吗|呢',entry.text)):
+                        self.question_followup=entry
+                    elif (self.core_only and self.question_key and self.question_context
+                          and re.search(r'(?:^|[。！!；])\s*(?:那|那这两周里[，,]?)?(?:大概|大约)?(?:有|出现了)?'
+                                        r'(?:几|多少)天(?:呢|呀|吗)?[？?]?$',entry.text)):
                         self.question_followup=entry
                     else:
                         self.question_key,self.question_context,self.question_followup=None,None,None
@@ -573,7 +585,8 @@ class Screening:
             return
         self.seen.add(entry.message_id)
         text = entry.text.strip()
-        self_report = core_self_report(text) if self.core_only and not self.history_danger_unresolved else None
+        self_report = core_self_report(text) if self.core_only and (
+            not self.history_danger_unresolved or self.stage=='collecting') else None
         before = (self.stage, len(self.answers), self.pending, self.end_after_response)
         # New speech can withdraw a previous wish to end, including a danger signal.
         self.end_after_response=False
@@ -773,6 +786,8 @@ class Screening:
             return base + conversational_style + (f'自然复述并确认：最近两周，“{topic}”出现的情况是“{option}”，我这样理解对吗？'
                            '保留用户描述的含义，不引导选择；不换话题、不要求报具体天数。')
         options=OPTIONS_BY_SCALE[self.current()[0]]
+        if self.core_only:
+            conversational_style+='把近两周和大约多少天问在同一个问题里。只回答“有时”“有点”“经常”时，顺着原话自然问大概有几天，再继续其它话题。'
         opener = CORE_OPENERS.get(self.current()[:2]) if self.core_only else None
         if opener:
             conversational_style += f'可直接采用这个自然问法：“{opener}”先回应一句，再立即问这一个问题，等用户回答。'

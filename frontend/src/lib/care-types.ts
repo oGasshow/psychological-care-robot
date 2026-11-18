@@ -63,7 +63,7 @@ export interface CollectionScale {
 }
 export interface SessionScore {
   scale_id: string; name: string; score: number; answered_max: number; answered: number;
-  required: number; full_max: number; source: 'conversation_assisted' | 'session_checkin';
+  required: number; full_max: number; source: 'conversation_assisted';
 }
 export interface CollectionObservation { display_name?: string; scale: string; item: number; status: string }
 export interface CollectionResult {
@@ -73,7 +73,7 @@ export interface CollectionResult {
   history_danger_unresolved?: boolean;
   recording_session_id: number; started_at: string; is_test: boolean; stage: string; detector_status: string;
   history_session_ids?: number[]; observations?: CollectionObservation[]; source_status: string; scales?: CollectionScale[];
-  is_closed?: boolean; current_session_scores?: SessionScore[]; checkin_scores?: SessionScore[];
+  is_closed?: boolean; current_session_scores?: SessionScore[];
 }
 export interface CollectionPlan { needs_collection: boolean; status: string; scales: CollectionScale[] }
 export interface AssessmentsData {

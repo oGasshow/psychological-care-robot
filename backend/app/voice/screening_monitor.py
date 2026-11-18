@@ -122,7 +122,7 @@ class ScreeningMonitor:
                     self.last_error_code = None
                     fresh = (self.latest_user_id == data['latest_user_id']
                              and (self.snapshot()['source_snapshot_hash']==data['source_snapshot_hash']
-                                  or self.controller.core_only and not self.controller.history_danger_unresolved)
+                                  or self.controller.core_only)
                              and not (self.controller.history_danger_unresolved and count<2))
                     was_collecting = self.controller.stage == 'collecting'
                     changed = self.controller.apply_decision(result, fresh=fresh)

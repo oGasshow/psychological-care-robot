@@ -76,53 +76,49 @@ def test_public_report_uses_only_selected_session_even_with_inherited_items(acto
     assert narrative=={'summary':'你提到课业让你紧绷。','suggestions':['可以先在作业间隙联系一位朋友。','把待办写在纸上。']}
 
 
-def close_text_call(actor,text):
-    sid=actor.create('voice_checkin_'+uuid.uuid4().hex[:8],started_at=now()).json()['recording_session_id']
-    assert actor.send(sid,1,**entry(text,'user').wire()).status_code==201
+def legacy_call(actor,controller,lines,*,old=False):
+    from app.robot_records import transaction
+    from app.voice.screening import CollectionTrace
+    sid=actor.create('voice_legacy_'+uuid.uuid4().hex[:8],started_at=now()).json()['recording_session_id']
+    for index,(role,text) in enumerate(lines,1):
+        assert actor.send(sid,index,**entry(text,role).wire()).status_code==201
     assert actor.request('POST',f'/api/robot-records/sessions/{sid}/close',
-        json=dict(ended_at=now(),last_sequence_no=1)).status_code==200
+        json=dict(ended_at=now(),last_sequence_no=len(lines))).status_code==200
+    save_result(actor.uid,sid,controller)
+    if old:
+        with transaction(True) as db:
+            trace=db.get(CollectionTrace,sid)
+            trace.payload={key:value for key,value in trace.payload.items() if key!='review_mode'}
     return sid
 
 
-def test_optional_session_checkin_persists_real_zero_for_a_stopped_account(actors):
-    a,b=actors
-    s=setup_controller();s.stage='declined';s.history_danger_unresolved=True
-    store_plan(a.uid,True,s)
-    sid=close_text_call(a,'今天只是来聊聊。')
-    other=close_text_call(a,'这次聊窗边的花。')
-    report=f'/api/robot-insights/reports/session/{sid}'
-    route=report+'/check-in'
-    earlier=a.request('GET',route).json()
-    assert earlier['available'] and earlier['answers']=={} and earlier['scores']==[]
-    assert a.request('GET',report).json()['scores']==[]
-    assert b.request('PUT',route,json={'phq_mood':2}).status_code==404
-    assert a.request('PUT',route,json={}).status_code==422
-    assert a.request('PUT',route,json={'phq_mood':True}).status_code==422
-    assert a.request('PUT',route,json={'gad_tension':4}).status_code==422
-    response=a.request('PUT',route,json={'phq_mood':0,'gad_tension':2})
-    assert response.status_code==200
-    scores=response.json()['scores']
-    assert [(s['scale_id'],s['score'],s['answered'],s['required'],s['source']) for s in scores]==[
-        ('PHQ-9',0,1,9,'session_checkin'),('GAD-7',2,1,7,'session_checkin')]
-    assert a.request('PUT',route,json={'phq_mood':0,'gad_tension':2}).json()==response.json()
-    assert a.request('GET',report).json()['scores']==scores
-    assert a.request('GET',f'/api/robot-insights/reports/session/{other}').json()['scores']==[]
-    data=a.request('GET','/api/robot-insights/assessments').json()
-    result=next(row for row in data['conversation_collections'] if row['recording_session_id']==sid)
-    assert result['checkin_scores']==scores and result['current_session_scores']==[]
-    assert read_plan(a.uid,True)['status']=='declined' and read_plan(a.uid,True)['history_danger_unresolved']
-    assert a.request('DELETE',f'/api/robot-records/sessions/{sid}').status_code==204
-    assert a.request('GET',route).status_code==410
-
-
-def test_optional_session_checkin_requires_a_complete_call_without_current_danger(actors):
+@pytest.mark.parametrize('refused',[False,True])
+def test_legacy_goodbye_repair_recovers_only_grounded_spoken_answers(actors,refused):
+    from app.voice.demo_reconciliation import scan
     a,_=actors
-    sid=close_text_call(a,'我有点不想活了。')
-    opened=a.create('voice_open_checkin').json()['recording_session_id']
-    for session_id in (sid,opened):
-        route=f'/api/robot-insights/reports/session/{session_id}/check-in'
-        assert a.request('GET',route).json()['available'] is False
-        assert a.request('PUT',route,json={'phq_mood':0}).status_code==409
+    s=setup_controller()
+    s.stage='declined';s.history_danger_unresolved=True
+    store_plan(a.uid,True,s)
+    old=[('user','我不想做量表了。')] if refused else []
+    legacy_call(a,s,[*old,('user','可以的，我现在有点不想聊天了，我们下次再聊吧。')],old=True)
+    current=legacy_call(a,s,[
+        ('assistant','这两周里，心情低落有几天？'),
+        ('user','大概五天。'),
+        ('assistant','这两周里，你会不会容易觉得累，没力气？'),
+        ('user','有时会有这种感觉。'),
+        ('assistant','这两周有没有反复想到死亡或者伤害自己的想法？'),
+        ('user','这倒没有。'),
+    ])
+    plan=read_plan(a.uid,True)
+    assert plan['status']==('declined' if refused else 'checking_in')
+    assert plan['history_danger_unresolved'] and not plan['answers']
+    scan()
+    route=f'/api/robot-insights/reports/session/{current}'
+    scores=a.request('GET',route).json()['scores']
+    assert [(r['scale_id'],r['answered'],r['score']) for r in scores]==([] if refused else [('PHQ-9',2,1)])
+    assert a.request('PUT',route+'/check-in',json={'phq_mood':2}).status_code==404
+    assert scan()==0
+    assert a.request('GET',route).json()['scores']==scores
 
 
 def test_core_short_conversation_persists_early_items_in_selected_report(actors):
@@ -135,6 +131,8 @@ def test_core_short_conversation_persists_early_items_in_selected_report(actors)
         ('assistant','好啊，有什么想说的吗？'),
         ('user','我最近觉得心情很低落。'),
         ('assistant','听起来这段时间不容易。最近两周，大概有几天觉得心情低落？'),
+        ('user','有时候会低落。'),
+        ('assistant','我明白。那大概有几天呢？'),
         ('user','有五天左右。'),
         ('assistant','最近两周，大概有几天对平常喜欢的事提不起兴趣？'),
         ('user','大概八九天。'),

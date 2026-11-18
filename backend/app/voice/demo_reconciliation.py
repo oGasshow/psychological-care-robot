@@ -1,6 +1,7 @@
 """Durable normal/demo answer reconciliation; source rows and task updates commit together."""
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from sqlalchemy import Column,Integer,String,ForeignKey
 from ..database import Base
@@ -9,7 +10,7 @@ from ..care.service import effective
 from .screening_policy import collection_policy
 
 
-RECONCILIATION_VERSION='saved-answers-v3-natural-and-mirroring'
+RECONCILIATION_VERSION='saved-answers-v4-legacy-call-end'
 
 
 class DemoAnswerReview(Base):
@@ -49,9 +50,51 @@ def mirror_missing(db,target,plan):
     if has_collected_items(view):db.merge(ScreeningResult(session_id=target.id,owner=target.user_id,payload=view))
 
 
+def recover_scoped_call(db,target,plan,rows):
+    """Verify already-spoken answers during follow-up, within a single call."""
+    from care_core import safety
+    from .collection_sources import attach_sources_in_db
+    from .screening import CollectionTrace, Screening, ScreeningResult, declines_collection
+    from .screening_policy import CORE_TARGETS
+
+    trace=db.get(CollectionTrace,target.id)
+    if not trace or db.get(ScreeningResult,target.id):
+        return False
+    stage=trace.payload.get('stage')
+    if stage not in ('checking_in','waiting_context','collecting') and not (
+            stage=='declined' and plan.get('stop_reason')=='legacy_call_end'):
+        return False
+    if any(row.role=='user' and (declines_collection(row.content,question_pending=True)
+            or safety(row.content)['safety_signal']=='explicit_danger_expression') for row in rows):
+        return False
+    controller=Screening(True,collection_policy().notice_version)
+    controller.core_only=controller.direct_collection=True
+    controller.target_scales=list(CORE_TARGETS)
+    controller.stage='collecting'
+    entries=[SimpleNamespace(message_id=row.external_message_id,role=row.role,text=row.content,final=True) for row in rows]
+    controller.reconcile_demo_turns(entries)
+    if not controller.answers or controller.stage in ('urgent','declined'):
+        return False
+    attach_sources_in_db(db,target.user_id,target.id,controller,{})
+    controller.stage=plan['status']
+    controller.history_danger_unresolved=plan.get('history_danger_unresolved',False)
+    controller.window_end=datetime.fromisoformat(target.started_at).astimezone(
+        timezone(timedelta(hours=8))).date().isoformat()
+    controller.target_scales=[scale for scale in CORE_TARGETS
+        if any(key.startswith(scale+':') for key in controller.answers)]
+    controller.signals=list(dict.fromkeys(identifier for answer in controller.answers.values()
+        for identifier in answer['evidence_ids']))
+    controller.trigger_origin='saved_voice_answers'
+    controller.detector=RECONCILIATION_VERSION
+    view=controller.view()
+    view.update(snapshot_kind='reconciled_session',automatic_saved_answer_review=True)
+    db.add(ScreeningResult(session_id=target.id,owner=target.user_id,payload=view))
+    return True
+
+
 def scan(limit=100):
     if not collection_policy().enabled:return 0
-    from .collection_plan import CollectionPlan,read_plan_in_db,restore,store_plan_in_db
+    from .collection_plan import CollectionPlan,key as plan_key,read_plan_in_db,restore,store_plan_in_db
     from .screening import Screening,CollectionTrace,ScreeningResult,has_collected_items
     from .after_call import has_open_call
     changed=0
@@ -69,6 +112,11 @@ def scan(limit=100):
             if not target or target.state!='closed' or not summary(db,target)['is_complete'] or has_open_call(db,target):continue
             plan=read_plan_in_db(db,job.owner,bool(target.is_test))
             if not plan or plan['episode_id']!=job.episode_id or bool(plan.get('demo_mode'))!=collection_policy().demo_mode or plan['window_end']!=job.window_end:continue
+            if plan.get('stop_reason')=='legacy_call_end':
+                saved=db.get(CollectionPlan,plan_key(job.owner,bool(target.is_test)))
+                if saved.payload['status']=='declined' and not saved.payload.get('stop_reason'):
+                    saved.payload={**saved.payload,'status':plan['status'],'stop_reason':plan['stop_reason']}
+                    saved.updated_at=now()
             rows=db.query(RecordMessage).filter_by(recording_session_id=target.id,text_status='completed').order_by(RecordMessage.sequence_no).all()
             drafts={row.id:effective(db,row) for row in rows}
             signature=hashlib.sha256(json.dumps(dict(version=RECONCILIATION_VERSION,episode=job.episode_id,window=job.window_end,status=plan['status'],answers=sorted(plan['answers']),
@@ -77,6 +125,9 @@ def scan(limit=100):
             job.input_hash=signature;job.updated_at=now()
             if any(d['input_revision'] for d in drafts.values()):
                 job.state='needs_revalidation';continue
+            if (not plan.get('demo_mode') and (plan.get('history_danger_unresolved') or plan.get('stop_reason')=='legacy_call_end')
+                    and plan['status'] not in ('declined','paused','urgent') and recover_scoped_call(db,target,plan,rows)):
+                job.state='reviewed';changed+=1;continue
             if not plan['needs_collection']:
                 mirror_missing(db,target,plan);job.state='complete';continue
             if plan['status'] in ('declined','paused','urgent','checking_in') or plan.get('history_danger_unresolved'):

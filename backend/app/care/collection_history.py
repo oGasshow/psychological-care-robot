@@ -4,7 +4,6 @@ from ..robot_records import RecordMessage,RecordSession
 from ..voice.screening import CollectionTrace,ScreeningResult,ITEMS,OPTIONS_BY_SCALE,core_self_report,has_collected_items
 from .models import InputRevision
 from .scale_catalog import session_score
-from .session_checkin import SessionCheckin, checkin_scores
 
 
 def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit=100,session_only=False):
@@ -13,8 +12,6 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
     if session_ids is not None:
         query=query.filter(RecordSession.id.in_(session_ids))
     sessions=query.order_by(RecordSession.id.desc()).limit(limit).all()
-    checkins = {row.session_id: row for row in db.query(SessionCheckin).filter(
-        SessionCheckin.owner == owner, SessionCheckin.session_id.in_([session.id for session in sessions])).all()}
     items=[]
     for session in sessions:
         trace=db.get(CollectionTrace,session.id)
@@ -28,7 +25,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
             observations=progress.get('observations',[]),history_session_ids=progress.get('history_session_ids',[]),
             history_danger_unresolved=progress.get('history_danger_unresolved',False),
             source_status='no_saved_collection',verification_status='unverified',
-            is_closed=session.state=='closed',current_session_scores=[],checkin_scores=checkin_scores(checkins.get(session.id)))
+            is_closed=session.state=='closed',current_session_scores=[])
         from ..voice.demo_reconciliation import DemoAnswerReview
         job=db.get(DemoAnswerReview,session.external_session_id)
         if job and job.owner==owner:

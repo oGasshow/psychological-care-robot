@@ -12,7 +12,7 @@ from .service import CareError,profile,record,enqueue,job_view,correct,effective
 from .reports import report,trends_data
 from .providers import assessments
 from .settings import settings
-from .session_checkin import CheckinBody, checkin_state
+from . import session_checkin  # Register legacy rows for session deletion.
 
 PositiveID=Annotated[StrictInt,Field(ge=1,le=9223372036854775807)]
 class JobBody(StrictBody):
@@ -258,18 +258,6 @@ def preview_session_report(sid: ResourceID, uid=Depends(owner)):
     with transaction() as db:
         value, facts = session_report(db, uid, sid)
     return dict(value, **public_narrative(facts))
-
-
-@router.get('/reports/session/{sid}/check-in')
-def get_session_checkin(sid: ResourceID, uid=Depends(owner)):
-    with transaction() as db:
-        return checkin_state(db, uid, sid)
-
-
-@router.put('/reports/session/{sid}/check-in')
-def save_session_checkin(sid: ResourceID, body: CheckinBody, uid=Depends(owner)):
-    with transaction(True) as db:
-        return checkin_state(db, uid, sid, answers=body.model_dump(exclude_none=True))
 
 
 @router.post('/reports/session/{sid}/narrative')

@@ -5,7 +5,6 @@ import Link from 'next/link';
 import {api,ApiError,date,insights} from '@/lib/care-api';
 import type {Page,SessionRecord,SessionScore} from '@/lib/care-types';
 import CareShell,{ErrorBox} from './care-shell';
-import SessionCheckin from './care-session-checkin';
 
 interface Wording {summary:string;suggestions:string[]}
 interface SessionReport extends Wording {
@@ -15,6 +14,13 @@ interface SessionReport extends Wording {
 }
 
 const emotions = [['positive','积极'],['neutral','中性'],['negative','消极']] as const;
+const selfAssessments = [
+  ['心情与兴趣','PHQ-9 心情自评（英文）','https://screening.mhanational.org/screening-tools/depression/'],
+  ['紧张与担忧','GAD-7 焦虑自评（英文）','https://screening.mhanational.org/screening-tools/anxiety/'],
+  ['睡眠困扰','ISI 失眠严重程度自评（英文）','https://www.mirecc.va.gov/visn19/treatmentworksforvets/insomnia/check-for-symptoms.asp'],
+  ['主观幸福感','WHO-5 幸福感量表（可选中文版）','https://www.who.int/zh/publications/m/item/WHO-UCN-MSD-MHE-2024.01'],
+  ['重大事件后的困扰','创伤后应激自评（英文）','https://screening.mhanational.org/screening-tools/ptsd/'],
+] as const;
 
 export default function SessionReportPage({printMode=false}:{printMode?:boolean}) {
   const [sessions,setSessions]=useState<SessionRecord[]>([]);
@@ -106,9 +112,6 @@ export default function SessionReportPage({printMode=false}:{printMode?:boolean}
     </div>
     <div className="care-no-print" role="status">{busy?'正在生成本次对话报告…':listing?'正在读取会话…':''}</div>
     <ErrorBox error={error}/>
-    {value&&!printMode&&<SessionCheckin key={selected} sessionId={Number(selected)}
-      onSaved={scores=>setValue(previous=>previous===value?{...previous,
-        scores:[...scores,...previous.scores.filter(s=>s.source!=='session_checkin')]}:previous)}/>}
     {value&&<Report value={value}/>}
   </CareShell>;
 }
@@ -128,7 +131,7 @@ function Report({value}:{value:SessionReport}){
       {value.scores.length?value.scores.map(s=>{
         const coverage=Math.round(100*s.answered/s.required);
         return <div className="scale-summary-card session-score" key={`${s.scale_id}-${s.source}`}>
-          <h3>{s.name}</h3><p><strong>{s.score} / {s.answered_max} 分</strong> · {s.source==='session_checkin'?'本次补充自评小计':s.answered===s.required?'本次对话辅助合计':'本次已答条目小计'}</p>
+          <h3>{s.name}</h3><p><strong>{s.score} / {s.answered_max} 分</strong> · {s.answered===s.required?'本次对话辅助合计':'本次已答条目小计'}</p>
           <p>采集覆盖率 <strong>{coverage}%</strong>（{s.answered}/{s.required} 项，完整满分 {s.full_max} 分）</p>
           <progress aria-label={s.name+'采集覆盖率'} max={s.required} value={s.answered}/>
         </div>;
@@ -146,12 +149,9 @@ function Report({value}:{value:SessionReport}){
       <p>本报告回顾你这次对话中的表达，共 {value.user_turns} 条用户发言。短对话能提供初步线索，更充分的交流能为回顾提供更多信息。报告供个人参考，不构成医学判断。</p>
       <h3>可选外部自评</h3>
       <p>可以按自己想了解的方向选填。外部自评结果由相应网站提供。</p>
-      <ul>
-        <li>心情与兴趣 <a href="https://screening.mhanational.org/screening-tools/depression/" target="_blank" rel="noreferrer">PHQ-9 心情自评（英文）</a></li>
-        <li>紧张与担忧 <a href="https://screening.mhanational.org/screening-tools/anxiety/" target="_blank" rel="noreferrer">GAD-7 焦虑自评（英文）</a></li>
-        <li>睡眠困扰 <a href="https://www.mirecc.va.gov/visn19/treatmentworksforvets/insomnia/check-for-symptoms.asp" target="_blank" rel="noreferrer">ISI 失眠严重程度自评（英文）</a></li>
-        <li>主观幸福感 <a href="https://www.who.int/zh/publications/m/item/WHO-UCN-MSD-MHE-2024.01" target="_blank" rel="noreferrer">WHO-5 幸福感量表（可选中文版）</a></li>
-        <li>重大事件后的困扰 <a href="https://screening.mhanational.org/screening-tools/ptsd/" target="_blank" rel="noreferrer">创伤后应激自评（英文）</a></li>
+      <ul className="report-self-assessment">
+        {selfAssessments.map(([topic,title,url])=><li key={url}>{topic} <a href={url} target="_blank" rel="noreferrer">{title}</a>
+          <span className="report-resource-url">{url}</span></li>)}
       </ul>
     </section>
   </article>;
