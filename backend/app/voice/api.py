@@ -17,7 +17,7 @@ from ..robot_records import owner, RecordError
 from . import upstream
 from .settings import settings
 from .recording import Recorder, directory as outbox_directory, internal_base, retry
-from .transcripts import Transcripts, Utterance, utc_now
+from .transcripts import Transcripts, Utterance, explicit_end_request, utc_now
 from .screening import Screening, ScreeningResult, save_result, has_collected_items
 from .screening_policy import CollectionPolicy, collection_policy, collection_targets,collection_demo_enabled
 from .screening_monitor import ScreeningMonitor
@@ -406,7 +406,7 @@ async def live(ws:WebSocket):
                     # The same live call remains available throughout. If the
                     # person spoke during review, let the model answer them and
                     # do not inject a competing scripted greeting.
-                    if monitor.user_count==start_user_count:
+                    if monitor.user_count==start_user_count and session_end_code!='user_voice_finish':
                         await interrupt('review_return')
                         await remote.send(json.dumps({'type':'speech_text_buffer.commit',
                             'text':'你好呀，我回来了，我们继续吧。'},ensure_ascii=False))
@@ -434,13 +434,16 @@ async def live(ws:WebSocket):
                 if entries:
                     await remote.send(json.dumps({'type':'response.cancel'}))
             async def receive_remote():
-                nonlocal last_activity
+                nonlocal last_activity, session_end_code, analyze_on_close
                 closing_response=None
                 closing_announced=False
                 async for raw_event in remote:
                     event=upstream.decode_event(raw_event);kind=event['type']
                     transport['remote_events']+=1;transport['last_remote_event']=kind
                     transport['last_remote_event_at']=time.monotonic()
+                    if session_end_code=='user_voice_finish':
+                        if kind=='session.closed':break
+                        continue
                     if kind=='session.updated' and pending_versions:
                         applied=pending_versions.pop(0)
                         RUNTIMES[uid]['applied_policy_version']=applied
@@ -456,14 +459,24 @@ async def live(ws:WebSocket):
                         if sega_audio:sega_audio.start(entry)
                     if sega_audio and entry and kind=='conversation.item.input_audio_transcription.failed':
                         sega_audio.reset()
+                    end_requested = bool(public and public['type']=='transcript.final'
+                                         and entry.role=='user' and explicit_end_request(entry.text))
                     if entry and kind=='conversation.item.input_audio_transcription.completed' and entry.final:
                         last_activity=time.monotonic()
-                        if sega_audio and public:sega_audio.finish_turn(entry,state.responses)
+                        if sega_audio and public and not end_requested:sega_audio.finish_turn(entry,state.responses)
                     if public:
                         if public['type']=='transcript.final':
                             transport['last_final_role']=entry.role
                             transport['last_final_at']=time.monotonic()
                             await persist(entry)
+                            if end_requested:
+                                session_end_code='user_voice_finish'
+                                analyze_on_close=True
+                                await emit(public)
+                                await emit(dict(type='playback.clear',reason='user_voice_finish'))
+                                await emit(dict(type='dialogue.finished'))
+                                finishing.set()
+                                continue
                             version=controller.version;controller.observe(entry)
                             monitor.observe(entry)
                             if version!=controller.version:await update_policy()
@@ -499,6 +512,7 @@ async def live(ws:WebSocket):
                         client_closed=True
                         finishing.set();return
                     if packet.get('bytes') is not None:
+                        if session_end_code=='user_voice_finish':continue
                         pcm=packet['bytes']
                         if len(pcm)!=640:raise ValueError('invalid_audio_frame')
                         if not mic_enabled:
@@ -572,8 +586,10 @@ async def live(ws:WebSocket):
             control=asyncio.create_task(receive_control())
             detector=asyncio.create_task(monitor.run())
             guard=asyncio.create_task(capture_guard())
+            finish_signal=asyncio.create_task(finishing.wait())
+            tasks=(receiver,client,deadline,control,detector,guard,finish_signal)
             try:
-                done,_=await asyncio.wait([receiver,client,deadline,control,detector,guard],return_when=asyncio.FIRST_COMPLETED)
+                done,_=await asyncio.wait(tasks,return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     if task is not deadline and not task.cancelled() and task.exception():raise task.exception()
                 if deadline in done:await emit(dict(type='status',state='time_limit',message='本次语音已到时限，正在保存记录。'))
@@ -582,12 +598,12 @@ async def live(ws:WebSocket):
                         await remote.send(json.dumps({'type':'input_audio_buffer.commit'}))
                     await remote.send(json.dumps({'type':'input_audio_mute.commit'}))
                     # A small drain retains final ASR/text already in flight.
-                    await asyncio.sleep(.6)
+                    if session_end_code!='user_voice_finish':await asyncio.sleep(.6)
                     await remote.send(json.dumps({'type':'session.close'}))
                     with suppress(TimeoutError):await asyncio.wait_for(asyncio.shield(receiver),2)
             finally:
-                for task in (receiver,client,deadline,control,detector,guard,*review_tasks):task.cancel()
-                await asyncio.gather(receiver,client,deadline,control,detector,guard,*review_tasks,return_exceptions=True)
+                for task in (*tasks,*review_tasks):task.cancel()
+                await asyncio.gather(*tasks,*review_tasks,return_exceptions=True)
                 if checkpoint_uploads:
                     await asyncio.gather(*checkpoint_uploads,return_exceptions=True)
     except RecordError:
@@ -628,7 +644,7 @@ async def live(ws:WebSocket):
                             await persist(entry)
                         result=await asyncio.to_thread(recorder.finish)
                         if (sega_audio and analyze_on_close and result['type']=='records.saved'
-                                and session_end_code in ('normal','silence_timeout')):
+                                and session_end_code in ('normal','silence_timeout','user_voice_finish')):
                             try:await asyncio.to_thread(sega_live.enqueue,uid,result['recording_session_id'],sega_audio)
                             except Exception:logger.warning('sega_voice_enqueue_failed')
                         if controller.enabled and result['type']=='records.saved':

@@ -2,6 +2,18 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import re
+
+
+def explicit_end_request(text):
+    """Match a standalone request to end the call in final user text."""
+    normalized = re.sub(r'[，,、\s]', '', text).rstrip('。！!')
+    return bool(re.fullmatch(
+        r'(?:好(?:的)?|那)?(?:我们)?(?:先|就|现在)?结束(?:(?:这次|本次)?(?:通话|对话|聊天)(?:吧|啦)?|吧)'
+        r'|(?:我)?(?:现在|暂时)?不想(?:再|继续)?(?:和|跟|与)你(?:说话|讲话|聊天|聊)(?:了|啦|吧)?',
+        normalized,
+    ))
+
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec='microseconds').replace('+00:00', 'Z')

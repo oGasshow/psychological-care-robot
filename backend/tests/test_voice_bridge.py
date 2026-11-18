@@ -12,7 +12,7 @@ from websockets.sync.server import serve
 from starlette.websockets import WebSocketDisconnect
 from app.voice import api, upstream
 from app.voice.settings import settings
-from app.voice.transcripts import Transcripts, Utterance
+from app.voice.transcripts import Transcripts, Utterance, explicit_end_request
 from app.care import report_narrative
 
 
@@ -53,6 +53,23 @@ def test_empty_provider_started_id_adopts_real_asr_id_without_extra_turn():
     state.apply(dict(type='conversation.item.input_audio_transcription.completed',item_id='actual_id',text='虚构'))
     next_entry,_=state.apply(dict(type='conversation.item.input_audio_transcription.started',item_id=''))
     assert next_entry is not named and next_entry.turn_id=='turn_2'
+
+
+@pytest.mark.parametrize('text,should_end',[
+    ('好的，结束吧！',True),
+    ('那我们结束这次通话吧。',True),
+    ('我不想跟你讲话了。',True),
+    ('我现在不想和你说话。',True),
+    ('结束了。',False),
+    ('我朋友说结束吧。',False),
+    ('你刚才说“结束吧”是什么意思？',False),
+    ('先别结束吧，我还想聊。',False),
+    ('我不想和你聊这个话题了。',False),
+    ('我不想继续回答量表问题。',False),
+    ('结束吧，我有点不想活了。',False),
+])
+def test_end_request_requires_a_standalone_intent(text,should_end):
+    assert explicit_end_request(text) is should_end
 
 
 @contextmanager
@@ -169,6 +186,30 @@ def test_goodbye_waits_for_client_playback_finish_even_without_output_text(actor
             ws.send_json(dict(type='finish'))
             while ws.receive_json()['type']!='records.saved':pass
     assert any(e['type']=='session.close' for e in received)
+
+
+@pytest.mark.parametrize('text',['结束吧。','我不想和你说话了。','我不想和你聊天了。'])
+def test_voice_end_command_saves_and_closes_without_client_ack(actors,monkeypatch,text):
+    a,_=actors
+    with cloud([text]) as (url,received):
+        setup_bridge(monkeypatch,url)
+        monkeypatch.setenv('ROBOT_CARE_GUIDED_SCREENING_ENABLED','false')
+        with a.client.websocket_connect('/api/robot-voice/live') as ws:
+            authenticate(ws,a)
+            ws.send_bytes(bytes(640))
+            events=[]
+            while True:
+                event=ws.receive_json()
+                events.append(event)
+                if event['type']=='records.saved':break
+                assert event['type']!='error'
+            with pytest.raises(WebSocketDisconnect):
+                ws.receive_json()
+    assert any(e['type']=='session.close' for e in received)
+    assert sum(e['type']=='dialogue.finished' for e in events)==1
+    assert not any(e['type']=='audio.delta' for e in events)
+    assert [e['content'] for e in FakeRecorder.instances[0].entries if e['role']=='user']==[text]
+    assert not api.ACTIVE
 
 
 @pytest.mark.parametrize('pending',[0,1])
