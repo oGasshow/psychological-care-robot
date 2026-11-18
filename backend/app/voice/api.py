@@ -128,13 +128,16 @@ async def diagnostics(response:Response,uid=Depends(owner)):
         'answer_candidate_superseded':'回答期间收到了新内容，旧候选已丢弃，正在核对最新对话。',
     }
     last_error=monitor.last_error_code if monitor else None
-    if last_error in error_messages:message=error_messages[last_error]
-    elif not controller.enabled:message='本次会话未启用后台信息采集。'
+    if not controller.enabled:message='本次会话未启用后台信息采集。'
+    elif controller.stage=='declined':message='账号的自动量表采集处于停止状态，当前语音对话可以继续。'
+    elif controller.stage=='paused':message='自动量表采集已暂停，当前语音对话可以继续。'
+    elif controller.stage=='urgent':message='本次对话优先提供安全关怀，量表采集已停止。'
+    elif controller.stage=='complete':message='关联量表任务已采齐，当前语音对话可以继续。'
+    elif last_error in error_messages:message=error_messages[last_error]
     elif controller.review_mode=='post_session' and not controller.triggered:message='后台会在对话中查看是否适合继续了解，结束保存后仍可复核。'
     elif controller.stage=='collecting':message='豆包已确认采集指令，可继续自然交流。' if applied==controller.version else '采集任务已下发，正在等待豆包确认。'
     elif controller.stage=='waiting_context':message='已有进一步了解的线索，正在等待适合自然过渡的对话时机。'
     elif controller.stage=='checking_in':message='已带入历史关注任务，先了解当前感受，不因换通话清除任务。'
-    elif controller.stage in ('paused','declined','urgent','complete'):message='本次采集已暂停或结束，不会强行继续。'
     elif monitor and monitor.in_flight:message='正在后台核查对话，语音交流可以继续。'
     elif controller.detector_status=='unavailable':message='后台检测暂未完成，请稍后再试；没有据此启动采集。'
     elif count<3:message=f'已收到 {count} 段用户最终转录；至少 3 段后才进行首次后台检测。'

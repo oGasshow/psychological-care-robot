@@ -140,6 +140,30 @@ def authenticate(ws,actor):
     while ws.receive_json()['type']!='session.ready':pass
 
 
+def test_diagnostics_identifies_inherited_collection_stop_before_first_user_turn(actors,monkeypatch):
+    from app.voice.collection_plan import store_plan
+    from app.voice.screening import Screening
+
+    actor,_=actors
+    with cloud() as (url,_):
+        setup_bridge(monkeypatch,url)
+        monkeypatch.setenv('ROBOT_CARE_GUIDED_SCREENING_ENABLED','true')
+        monkeypatch.setenv('ROBOT_CARE_PURCHASE_NOTICE_VERSION','fictional-notice')
+        controller=Screening(True,'fictional-notice')
+        controller.concern(['fictional-source'],'test',['PHQ-9'])
+        controller.action('decline')
+        store_plan(actor.uid,True,controller)
+        with actor.client.websocket_connect('/api/robot-voice/live') as ws:
+            authenticate(ws,actor)
+            data=actor.request('GET','/api/robot-voice/diagnostics').json()
+            assert data['active'] and data['stage']=='declined' and data['user_turns']==0
+            assert data['message']=='账号的自动量表采集处于停止状态，当前语音对话可以继续。'
+            ws.send_bytes(bytes(640))
+            while ws.receive_json()['type']!='audio.delta':pass
+            ws.send_json(dict(type='finish'))
+            while ws.receive_json()['type']!='records.saved':pass
+
+
 def test_silence_closes_session_and_saves_transcript(actors,monkeypatch):
     actor,_=actors
     with cloud(ignore_silence=True,frames_per_turn=15) as (address, _):
