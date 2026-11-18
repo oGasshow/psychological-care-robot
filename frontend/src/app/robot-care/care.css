@@ -21,6 +21,8 @@
 .care-actions { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:18px 0; }
 .care-btn { appearance:none; border:1px solid var(--green); background:var(--green); color:white; border-radius:8px; padding:9px 17px; cursor:pointer; font:inherit; font-weight:600; text-decoration:none; display:inline-block; }
 .care-btn.secondary { color:var(--green); background:white; }
+.care-btn.delete { background:#fff; color:#872e3a; border-color:#ba7079; }
+.care-btn.delete:hover:not(:disabled) { background:#fff1f1; }
 .care-btn:disabled { opacity:.5; cursor:wait; }
 .care-badge { display:inline-block; border-radius:5px; padding:2px 9px; font-size:12px; background:#edf2ef; color:#405d55; margin:0 5px 4px 0; }
 .care-badge.test { background:#f9eacb; color:#705313; font-weight:700; }

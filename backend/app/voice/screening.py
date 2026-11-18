@@ -51,7 +51,8 @@ HOLD_CORE_FOLLOWUP = re.compile(r'崩溃|很痛苦|撑不住|喘不过气|恐慌
 SAFETY_AFFIRMATION = re.compile(r'(?:有|还有|仍然有|有一点|有时候有)(?:啊|呀|呢|的)?[。！! ]*')
 SAFETY_DENIAL = re.compile(
     r'(?:没有(?:了|啊|呀|啦|的|呢)?|(?:没有[，, ]*)?(?:我)?现在没有'
-    r'(?:(?:伤害自己|不想活(?:下去)?)(?:的)?(?:念头|想法)|这种念头))[。！! ]*')
+    r'(?:(?:伤害自己|不想活(?:下去)?|活不下去|轻生)(?:的)?(?:念头|想法)|这种念头)'
+    r'(?:[，, ]*没有)?)[。！! ]*')
 TOPIC_CUES = {
     'PHQ-9': [('兴趣','乐趣','喜欢','兴致'),('低落','盼头','沮丧','心情','不开心'),('睡','入眠','失眠'),
               ('疲倦','精力','累'),('食欲','吃饭','胃口','吃得'),('自责','失望','价值'),
@@ -80,6 +81,7 @@ CORE_OPENERS = {
     ('PHQ-9', 6): '最近两周，大概有几天觉得自己没价值？',
     ('PHQ-9', 7): '最近两周，大概有几天难以集中注意力？',
     ('PHQ-9', 8): '最近两周，大概有几天觉得自己的动作变慢？',
+    ('PHQ-9', 9): '最近两周，有几天出现过不想活下去或伤害自己的念头？',
     ('GAD-7', 1): '最近两周，大概有几天感到紧张或焦虑？',
     ('GAD-7', 2): '最近两周，大概有几天觉得无法停止或控制担忧？',
     ('GAD-7', 3): '最近两周，大概有几天会对不同事情担忧过多？',
@@ -149,6 +151,7 @@ def declines_collection(text, *, question_pending=False):
     explicit = (
         r'(不想|不愿意|不需要|拒绝).{0,8}(回答|答题|问卷|量表|采集|这些问题|这个问题|继续问|再问)',
         r'(别再问|停止问|停止采集|先不做(问卷|量表|采集)|不想聊这个(问题|话题|问卷|量表|采集))',
+        r'(?:请)?(?:不要|别)(?:老是|一直|再)?问(?:我)?(?:这种|这些|这类)(?:问题|事情)',
     )
     if any(re.search(pattern, text) for pattern in explicit):
         return True
@@ -355,10 +358,11 @@ class Screening:
             return None
         if self.needs_current_safety_check:
             return SAFETY_CHECK_QUESTION if not self.safety_check_asked else None
-        if not self.triggered or self.current_call_answered or round_number < CORE_QUESTION_DUE_ROUND - 1:
+        if (not self.triggered or (self.current_call_answered and not self.user_invited_questions)
+                or round_number < CORE_QUESTION_DUE_ROUND - 1):
             return None
         item=self.current()
-        if not item or item[:2] not in CORE_OPENERS:
+        if not item or item[:2] == ('PHQ-9',9) and not self.user_invited_questions:
             return None
         if self.start_collection():
             self.version+=1
@@ -629,6 +633,7 @@ class Screening:
         if f'{scale}:{index}' not in self.answers:
             self.preferred_item = (scale, index)
         self.start_collection()
+        self.follow_core_topic(entry)
         self.detector_status = 'checked'
         self.version += 1
         return True

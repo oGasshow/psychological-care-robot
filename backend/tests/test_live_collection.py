@@ -3,7 +3,7 @@ import uuid
 import pytest
 from app.database import SessionLocal
 from app.robot_records import now,RecordSession
-from app.voice.screening import Screening,CollectionTrace,frequency_answer,CUSTOM_OPTIONS,OPTIONS
+from app.voice.screening import Screening,CollectionTrace,frequency_answer,CUSTOM_OPTIONS,OPTIONS,question_item,SAFETY_CHECK_QUESTION
 from app.voice.transcripts import Utterance
 from app.voice.collection_sources import attach_sources
 from app.voice.collection_plan import store_plan,read_plan
@@ -85,6 +85,42 @@ def test_affirmation_only_uses_a_uniquely_stated_frequency():
 
 def test_standard_answer_never_uses_five_level_frequency():
  assert frequency_answer('这种感觉经常出现呢。',OPTIONS,'最近两周缺少兴趣的情况怎么样？') is None
+
+
+def test_normal_collection_continues_across_scales_after_first_item_if_invited():
+ s=Screening(True)
+ s.core_only=s.direct_collection=True
+ s.review_mode='post_session'
+ s.observe(utter('我最近心情很低落。我最近经常感觉很焦虑。'))
+ assert set(s.target_scales)=={'PHQ-9','GAD-7'}
+ s.observe(utter('最近两周，大概有几天感到紧张或焦虑？','assistant'))
+ s.observe(utter('有五天左右。'))
+ assert s.answers['GAD-7:1']['value']==1
+ reply=utter('谢谢你和我说这些。','assistant')
+ s.observe(reply)
+ assert s.supplemental_question(reply,5) is None
+ s.observe(utter('你可以继续问我。'))
+ question=s.supplemental_question(reply,6)
+ assert question_item(question,'PHQ-9')==2
+ s.observe(utter('你不要老是问我这种问题，好不好？'))
+ assert s.stage=='declined' and s.supplemental_question(reply,7) is None
+
+
+def test_normal_safety_check_accepts_scoped_spoken_denial():
+ s=Screening(True)
+ s.core_only=s.direct_collection=True
+ s.review_mode='post_session'
+ s.concern(['old'],'fixture',['PHQ-9'])
+ s.stage='checking_in'
+ s.history_danger_unresolved=True
+ question=utter(SAFETY_CHECK_QUESTION,'assistant')
+ answer=utter('我现在没有活不下去的念头，没有。')
+ answer.turn_id='next-turn'
+ s.observe(question)
+ s.observe(answer)
+ assert s.stage=='waiting_context' and not s.needs_current_safety_check
+ assert not s.answers
+
 
 def test_checkpoint_denies_another_owner(actors):
  a,b=actors;s=controller();sid=upload(a,[])
