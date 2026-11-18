@@ -30,6 +30,8 @@ class Utterance:
     interrupted: bool = False
     done: bool = False
     occurred_at: str = ''
+    scripted_text: str = ''
+    audio_sent: bool = False
 
     @property
     def message_id(self):
@@ -52,6 +54,14 @@ class Transcripts:
         self.active_response = None
         self.turn = 0
         self.waiting_cancel = False
+        self.queued_speech = None
+
+    def queue_speech(self, text, reply):
+        # Keep the scripted line off the transcript until matching audio is sent.
+        entry=Utterance('followup_'+reply.key, 'assistant', reply.turn_id,
+                        occurred_at=utc_now(), scripted_text=text)
+        self.responses[entry.key]=entry
+        self.queued_speech=entry
 
     def user(self, event):
         named = event.get('item_id') or event.get('question_id')
@@ -76,6 +86,10 @@ class Transcripts:
         question_key='question_'+question if question else None
         key = (self.aliases.get(question_key) if question_key else None) or (question_key or self.aliases.get(response) or response or self.active_response or f'reply_turn_{self.turn}')
         if self.turn==0 and self.active_response=='greeting':key='greeting'
+        if (self.queued_speech and event['type']=='response.output_audio.started'
+                and event.get('tts_type')=='chat_tts_text'):
+            key=self.queued_speech.key
+            self.queued_speech=None
         if question_key:self.aliases[question_key]=key
         if response:
             self.aliases[response] = key
@@ -119,6 +133,14 @@ class Transcripts:
             entry = self.response(event)
             if entry.interrupted:
                 return entry, None
+            if entry.scripted_text:
+                if kind=='response.output_audio.done':
+                    entry.done=True
+                    if entry.audio_sent and not entry.final:
+                        entry.text=entry.scripted_text
+                        entry.final=True
+                        return entry,entry.public(True)
+                return entry,None
             if kind=='response.output_text.delta' and not entry.final:
                 entry.text += event.get('delta','')
                 return entry, entry.public()
@@ -131,6 +153,8 @@ class Transcripts:
         if kind=='response.canceled':
             # An ACK for the old response must not reset/discard a newer response.
             self.waiting_cancel = False
+            if self.queued_speech and self.queued_speech.interrupted:
+                self.queued_speech=None
         if kind=='response.done':
             identifier=event.get('response_id') or event.get('response',{}).get('id')
             key=self.aliases.get(identifier) if identifier else self.active_response

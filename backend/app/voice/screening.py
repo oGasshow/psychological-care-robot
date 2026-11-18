@@ -45,6 +45,13 @@ SCALE_DIRECTIONS = {
 }
 CUSTOM_SCALE_IDS = ('mood_interest','worry_anxiety','stress_load','sleep_wellbeing','coping_resources','social_comfort')
 CONTEXT_CHECKIN_AFTER_USER_TURNS = 4
+CORE_QUESTION_DUE_ROUND = 4
+SAFETY_CHECK_QUESTION = '我也想确认一下，你现在还有伤害自己或不想活下去的念头吗？'
+HOLD_CORE_FOLLOWUP = re.compile(r'崩溃|很痛苦|撑不住|喘不过气|恐慌|让我先说完|还想继续(?:说|倾诉)|先听我说|先别问')
+SAFETY_AFFIRMATION = re.compile(r'(?:有|还有|仍然有|有一点|有时候有)(?:啊|呀|呢|的)?[。！! ]*')
+SAFETY_DENIAL = re.compile(
+    r'(?:没有(?:了|啊|呀|啦|的|呢)?|(?:没有[，, ]*)?(?:我)?现在没有'
+    r'(?:(?:伤害自己|不想活(?:下去)?)(?:的)?(?:念头|想法)|这种念头))[。！! ]*')
 TOPIC_CUES = {
     'PHQ-9': [('兴趣','乐趣','喜欢','兴致'),('低落','盼头','沮丧','心情','不开心'),('睡','入眠','失眠'),
               ('疲倦','精力','累'),('食欲','吃饭','胃口','吃得'),('自责','失望','价值'),
@@ -67,8 +74,19 @@ POLARITY_GUARDS = {
 CORE_OPENERS = {
     ('PHQ-9', 1): '最近两周，大概有几天对平常喜欢的事提不起兴趣？',
     ('PHQ-9', 2): '最近两周，大概有几天觉得心情低落？',
+    ('PHQ-9', 3): '最近两周，大概有几天晚上睡不着？',
+    ('PHQ-9', 4): '最近两周，大概有几天觉得没精力？',
+    ('PHQ-9', 5): '最近两周，大概有几天胃口差？',
+    ('PHQ-9', 6): '最近两周，大概有几天觉得自己没价值？',
+    ('PHQ-9', 7): '最近两周，大概有几天难以集中注意力？',
+    ('PHQ-9', 8): '最近两周，大概有几天觉得自己的动作变慢？',
     ('GAD-7', 1): '最近两周，大概有几天感到紧张或焦虑？',
-    ('GAD-7', 2): '最近两周，大概有几天觉得担心很难停下来？',
+    ('GAD-7', 2): '最近两周，大概有几天觉得无法停止或控制担忧？',
+    ('GAD-7', 3): '最近两周，大概有几天会对不同事情担忧过多？',
+    ('GAD-7', 4): '最近两周，大概有几天觉得很难放松？',
+    ('GAD-7', 5): '最近两周，大概有几天难以安坐？',
+    ('GAD-7', 6): '最近两周，大概有几天比平时容易烦恼或急躁？',
+    ('GAD-7', 7): '最近两周，大概有几天会害怕有不好的事发生？',
 }
 CORE_CONCERN = re.compile(
     r'^(?:最近|这阵子|这几天|最近两周|这两周)?[，, ]*我(?:最近|这阵子|这几天|最近两周|这两周)?'
@@ -297,6 +315,11 @@ class Screening:
         self.detector_status = 'not_checked'
         self.history_session_ids=[]
         self.history_danger_unresolved=False
+        self.current_safety_discussed=False
+        self.safety_check_asked=False
+        self.safety_question_turn=None
+        self.current_call_answered=False
+        self.latest_user_text=''
         self.background=''
         self.observations=[]
         self.candidate_context=None
@@ -315,6 +338,56 @@ class Screening:
 
     @property
     def streamlined(self):return self.demo_mode or self.direct_collection
+
+    @property
+    def normal_live(self):
+        return self.enabled and self.direct_collection and self.core_only and not self.verifying_saved_call
+
+    @property
+    def needs_current_safety_check(self):
+        return self.history_danger_unresolved and not self.current_safety_discussed
+
+    def supplemental_question(self, reply, round_number):
+        """Supply one question after a finished reply missed a needed follow-up."""
+        if not self.normal_live or self.end_after_response or HOLD_CORE_FOLLOWUP.search(self.latest_user_text):
+            return None
+        if self.stage not in ('checking_in','waiting_context','collecting'):
+            return None
+        if self.needs_current_safety_check:
+            return SAFETY_CHECK_QUESTION if not self.safety_check_asked else None
+        if not self.triggered or self.current_call_answered or round_number < CORE_QUESTION_DUE_ROUND - 1:
+            return None
+        item=self.current()
+        if not item or item[:2] not in CORE_OPENERS:
+            return None
+        if self.start_collection():
+            self.version+=1
+        if round_number < CORE_QUESTION_DUE_ROUND:
+            return None
+        if self.question_context and self.question_context.turn_id == reply.turn_id and re.search(
+                r'几天|多少天|超过一半|几乎每天', (self.question_followup or self.question_context).text):
+            return None
+        return CORE_OPENERS[item[:2]]
+
+    def start_collection(self):
+        if self.stage=='collecting':
+            return False
+        self.stage='collecting'
+        self.review_status='follow_up'
+        self.review_completed=False
+        return True
+
+    def read_safety_reply(self, entry):
+        if not (self.normal_live and self.needs_current_safety_check and self.safety_question_turn
+                and self.safety_question_turn!=entry.turn_id):
+            return None
+        self.safety_question_turn=None
+        text=entry.text.strip()
+        if SAFETY_AFFIRMATION.fullmatch(text):
+            return 'danger'
+        if SAFETY_DENIAL.fullmatch(text):
+            return 'addressed'
+        return None
 
     def inherit(self,context):
         from .continuity import background_instructions
@@ -363,9 +436,36 @@ class Screening:
         self.target_scales = list(dict.fromkeys(targets))
         self.detector = version
         self.stage = 'waiting_context'
-        self.context_checkin_due=(self.dialogue_rounds>=CONTEXT_CHECKIN_AFTER_USER_TURNS
+        self.context_checkin_due=(self.review_mode=='live' and self.dialogue_rounds>=CONTEXT_CHECKIN_AFTER_USER_TURNS
                                   and not self.context_checkin_asked)
         self.version += 1
+
+    def apply_normal_decision(self, result):
+        """Use only a current live decision to advance ordinary mode."""
+        if (self.stage=='collecting' or self.needs_current_safety_check
+                or HOLD_CORE_FOLLOWUP.search(self.latest_user_text)):
+            return False
+        before=(self.stage, tuple(self.target_scales), self.review_status)
+        if result['decision']=='follow_up':
+            evidence=result['evidence']
+            ids=[entry['message_id'] for entry in evidence]
+            if not self.triggered:
+                self.concern(ids,result['detector_version'],result['target_scales'])
+            else:
+                self.signals=list(dict.fromkeys([*self.signals,*ids]))
+                self.target_scales=list(dict.fromkeys([*self.target_scales,*result['target_scales']]))
+            if self.preferred_item is None:
+                self.preferred_item=next((item for entry in evidence
+                    if (item:=CORE_CONCERN_ITEMS.get(entry['domain'])) and item[0] in self.target_scales
+                    and f'{item[0]}:{item[1]}' not in self.answers),None)
+            if self.stage=='waiting_context':
+                self.review_status='waiting_context'
+        if self.triggered and result['transition_ready'] and self.stage=='waiting_context':
+            self.start_collection()
+        changed=before!=(self.stage, tuple(self.target_scales), self.review_status)
+        if changed:
+            self.version+=1
+        return changed
 
     def apply_decision(self, result, *, fresh=True):
         if not self.enabled or self.stage in ('declined', 'paused', 'urgent', 'complete'):
@@ -375,10 +475,12 @@ class Screening:
             if not targets:
                 return False
             result={**result,'target_scales':targets}
-        if self.review_status in ('running','pending') and not fresh:
+        if not fresh and (self.normal_live or self.review_status in ('running','pending')):
             return False
         self.detector_status = 'checked'
         self.decisions = (self.decisions + [result])[-6:]
+        if self.normal_live:
+            return self.apply_normal_decision(result)
         before = (self.stage, tuple(self.target_scales), self.review_status, self.review_completed)
         if self.review_status in ('running','pending') and fresh:
             if result['decision'] == 'follow_up':
@@ -457,7 +559,8 @@ class Screening:
             scale,index,_=item
             relevant=sum(cue in self.recent_topic_text for cue in TOPIC_CUES[scale][index-1])
             tie=sha256(f'{self.episode_id or ""}:{scale}:{index}'.encode()).digest()
-            return ((scale,index)==('PHQ-9',9),-relevant,scale==self.last_answered_scale,tie)
+            general_topic=(scale,index) in (('PHQ-9',2),('GAD-7',1))
+            return ((scale,index)==('PHQ-9',9),-relevant,scale==self.last_answered_scale,not general_topic,tie)
         return min(remaining,key=topic_order,default=None)
 
     def follow_core_topic(self,entry):
@@ -500,13 +603,14 @@ class Screening:
         return len(self.answers)!=before
 
     def open_core_followup(self, entry, text, self_report):
-        if not self.core_only or self.history_danger_unresolved or declines_collection(text, question_pending=bool(self.question_key)):
+        if not self.core_only or self.needs_current_safety_check or declines_collection(text, question_pending=bool(self.question_key)):
             return False
-        requested = bool(re.fullmatch(r'(?:我)?(?:现在)?(?:想|愿意|希望)(?:做|开始|继续|恢复)(?:一下|一次|个)?(?:心理|近况|情绪)(?:辅助)?(?:自评|筛查|评估)[吧呀。！!]*', text))
+        requested = bool(re.fullmatch(r'(?:(?:我)?(?:现在)?(?:想|愿意|希望)(?:做|开始|继续|恢复)|请(?:你)?(?:给我|帮我)(?:做)?)'
+            r'(?:一下|一次|个|一份)?(?:(?:心理|近况|情绪)(?:辅助)?(?:自评|筛查|评估|量表)|量表|心理问卷)[吧呀。！!]*', text))
         if self.stage not in ('companionship', 'waiting_context') and not (
                 requested and self.stage in ('declined', 'paused')):
             return False
-        if re.search(r'崩溃|很痛苦|撑不住|喘不过气|恐慌|让我先说完|还想继续(?:说|倾诉)', text):
+        if HOLD_CORE_FOLLOWUP.search(text):
             return False
         item = self_report[:2] if self_report else core_concern_item(text)
         if not item and not requested:
@@ -524,8 +628,7 @@ class Screening:
             self.target_scales.append(scale)
         if f'{scale}:{index}' not in self.answers:
             self.preferred_item = (scale, index)
-        self.stage = 'collecting'
-        self.review_status = 'follow_up'
+        self.start_collection()
         self.detector_status = 'checked'
         self.version += 1
         return True
@@ -541,6 +644,7 @@ class Screening:
                           question_context_id=self.question_context.message_id,
                           window_context_id=(self.window_context or self.question_context).message_id)
         self.answers[f'{scale}:{index}'] = answer
+        self.current_call_answered=True
         self.last_answered_scale=scale
         self.detector_status, self.collection_feedback = 'checked', None
         self.pending,self.confirmation_asked,self.candidate_context=None,False,None
@@ -578,10 +682,15 @@ class Screening:
 
     def observe(self, entry):
         if self.enabled and entry.role == 'assistant' and entry.final:
+            if (self.normal_live and self.needs_current_safety_check
+                    and entry.text.replace(' ','') == SAFETY_CHECK_QUESTION):
+                self.safety_question_turn=entry.turn_id
+                self.safety_check_asked=True
+                self.version+=1
             if self.review_completed and self.user_turn_waiting_for_reply:
                 self.post_review_turns+=1
                 self.user_turn_waiting_for_reply=False
-            if self.stage in ('companionship','waiting_context') and self.user_turn_waiting_for_reply:
+            if self.review_mode=='live' and self.stage in ('companionship','waiting_context') and self.user_turn_waiting_for_reply:
                 self.dialogue_rounds+=1
                 self.user_turn_waiting_for_reply=False
                 if (self.stage in ('companionship','waiting_context')
@@ -655,19 +764,22 @@ class Screening:
             return
         self.seen.add(entry.message_id)
         text = entry.text.strip()
+        self.latest_user_text=text
+        safety_reply=self.read_safety_reply(entry)
         self_report = core_self_report(text) if self.core_only and (
-            not self.history_danger_unresolved or self.stage=='collecting') else None
+            not self.needs_current_safety_check or self.stage=='collecting') else None
         before = (self.stage, len(self.answers), self.pending, self.end_after_response)
         # New speech can withdraw a previous wish to end, including a danger signal.
         self.end_after_response=False
-        if self.stage in ('companionship', 'waiting_context', 'complete') or self.review_completed:
+        if self.review_completed or (self.review_mode=='live' and self.stage in ('companionship','waiting_context','complete')):
             self.user_turn_waiting_for_reply=True
-        if safety(text)['safety_signal'] == 'explicit_danger_expression':
+        if safety_reply=='danger' or safety(text)['safety_signal']=='explicit_danger_expression':
             if self.stage=='complete':
                 self.answers,self.target_scales,self.signals={},[],[]
                 self.episode_id,self.window_end=None,None
             self.stage, self.pending = 'urgent', None
             self.history_danger_unresolved=True
+            self.current_safety_discussed=False
             self.target_scales=list(dict.fromkeys([*self.target_scales,'PHQ-9']))
             self.signals=list(dict.fromkeys([*self.signals,entry.message_id]))
         elif ((self.stage=='complete' or self.review_completed) and self.closing_question_asked
@@ -682,11 +794,14 @@ class Screening:
         elif self.stage not in ('declined', 'urgent', 'complete'):
             if declines_collection(text, question_pending=bool(self.question_key)):
                 self.action('decline')
+            elif safety_reply=='addressed':
+                self.current_safety_discussed=True
+                self.stage='waiting_context' if self.triggered else 'companionship'
             elif self.stage=='waiting_context' and self.capture_frequency_answer(entry,while_waiting=True):
                 pass
-            elif (self.triggered and not self.history_danger_unresolved and self.stage in ('waiting_context','collecting')
+            elif (self.triggered and not self.needs_current_safety_check and self.stage in ('waiting_context','collecting')
                   and re.search(r'还有.{0,8}想问|有什么想问|还想问|你(可以|来|继续|多|再).{0,4}问|我愿意.{0,5}(回答|继续聊)',text)):
-                self.user_invited_questions=True;self.stage='collecting';self.version+=1
+                self.user_invited_questions=True;self.start_collection();self.version+=1
             elif (self.review_mode=='live' and self.stage in ('waiting_context','companionship') and self.context_checkin_asked
                   and accepts_review_transition(text)):
                 # A clear answer marks the end of the venting segment. Keep the
@@ -719,6 +834,7 @@ class Screening:
                                                               confirmation_context_id=self.confirmation_context_id,
                                                               **(self.candidate_context or {}))
                         self.last_answered_scale=scale
+                        self.current_call_answered=True
                         self.observations=[o for o in self.observations if (o['scale'],o['item'])!=(scale,index)]
                         self.candidate_context=None
                         self.pending, self.confirmation_asked = None, False
@@ -740,7 +856,7 @@ class Screening:
             self.collection_feedback=('刚才的回答还不能确定该条目频率，请温和补问一次，不要反复要求确认。'
                 if self.question_key else '刚才的问题没有对应仍缺的方向。下一次请纠正话题，只询问后台指定的下一项，不能自行认为已经采齐。')
             self.version+=1
-        if (self.stage in ('companionship','waiting_context') and not self.context_checkin_asked
+        if (self.review_mode=='live' and self.stage in ('companionship','waiting_context') and not self.context_checkin_asked
                 and self.user_turn_waiting_for_reply
                 and self.dialogue_rounds+1>=CONTEXT_CHECKIN_AFTER_USER_TURNS
                 and not self.context_checkin_due):
@@ -793,6 +909,8 @@ class Screening:
                 '平台会保存采集任务和已确认条目并带入后续通话。不要编造“会话隔离所以没保存或看不到旧进度”的解释；只能如实说明当前提供的任务摘要，实际保存以平台显示为准。'
                 '不提供未经核实的热线号码，不从模型记忆编造联系方式。')+self.background
         if self.window_end:base+=f'本次回顾范围固定为截至{self.window_end}的前两周，跨会话保持同一回顾范围，不混用不同时段。'
+        if self.normal_live and self.current_safety_discussed:
+            base+='本次已直接了解过用户此刻是否仍有相关念头，请回应当前对话，不用重复询问过去的情况。后续有新的危险表达仍须优先安全关怀。'
         if not self.enabled:
             return base+'当前会话未启用后台信息采集，只自然陪伴；用户问及功能时如实说明当前未启用，不说系统永远不会主动了解。'
         if self.demo_mode:
@@ -816,6 +934,10 @@ class Screening:
                  '在需要进一步了解且适合继续聊时自然问问近况，不需要用户主动要求或说特定口令，也不会据此诊断。'
                  '不要回答“我不会主动发起”“只有你主动提出才会涉及”；不把关于功能的假设问题当成用户症状。')
         if self.stage=='checking_in':
+            if self.normal_live:
+                status=('平台刚问过此刻是否有伤害自己的念头，紧接着的简短是或否回答是对此问题的回应。'
+                        if self.safety_question_turn else '本次先回应此刻感受，由平台在适当时补充安全关怀。')
+                return base+status+'不要当作已经安全，不开始量表，也不重复平台已问的安全问题。'
             return base+'上次有需要持续关注的表达，本次先温和询问此刻感受和是否仍被那些念头困住。不要当作已经安全，不直接开始量表，不用问卷确认安全。'
         if self.stage=='reviewing':
             return base+'用户刚结束一段倾诉，先温和说“我先把咱们刚才聊的内容梳理一下，稍等我一小会儿，马上回来跟你接着说。”后台最多等待约4秒，整个语音连接保持开启。期间若用户明确在问你或继续对你说话，正常回应并倾听；若明显是在自言自语或对旁人说话，不要插话。后台会根据本段文字决定是否以及沿哪些方向进一步了解，不要自行猜测是否要做、做哪些指标，不要宣布情绪正常。'

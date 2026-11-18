@@ -73,7 +73,7 @@ def test_end_request_requires_a_standalone_intent(text,should_end):
 
 
 @contextmanager
-def cloud(user_texts=None, *, audio_only=False, ignore_silence=False, frames_per_turn=1):
+def cloud(user_texts=None, *, audio_only=False, ignore_silence=False, frames_per_turn=1, synthesize_speech=False):
     received=[]
     def handler(ws):
         input_count=0
@@ -83,7 +83,13 @@ def cloud(user_texts=None, *, audio_only=False, ignore_silence=False, frames_per
                 if kind=='session.create':ws.send(json.dumps(dict(type='session.created')))
                 elif kind=='session.update':ws.send(json.dumps(dict(type='session.updated')))
                 elif kind=='speech_text_buffer.commit':
-                    ws.send(json.dumps(dict(type='response.output_audio.done',response_id='hello')))
+                    if synthesize_speech and event['text']!=upstream.GREETING:
+                        reply=f'spoken-{input_count}'
+                        ws.send(json.dumps(dict(type='response.output_audio.started',response_id=reply,tts_type='chat_tts_text')))
+                        ws.send(json.dumps(dict(type='response.output_audio.delta',delta=base64.b64encode(bytes(640)).decode())))
+                        ws.send(json.dumps(dict(type='response.output_audio.done',response_id=reply)))
+                    else:
+                        ws.send(json.dumps(dict(type='response.output_audio.done',response_id='hello')))
                 elif kind=='input_audio_buffer.append':
                     if ignore_silence and base64.b64decode(event['audio']) == bytes(640):
                         continue
@@ -138,6 +144,61 @@ def setup_bridge(monkeypatch,url):
 def authenticate(ws,actor):
     ws.send_json(dict(type='authenticate',token=actor.token,device_id='pi_adapter_test'))
     while ws.receive_json()['type']!='session.ready':pass
+
+
+@pytest.mark.parametrize('prior_task,history_response,expected', [
+    (True, None, 'collecting'), (True, '没有呀。', 'collecting'), (True, '有。','urgent'),
+    (True, '我不确定。', 'checking_in'), (True, '我不想回答量表。', 'declined'),
+    (False, None, 'collecting'),
+])
+def test_normal_voice_supplies_first_question_in_five_rounds(actors,monkeypatch,prior_task,history_response,expected):
+    from app.voice import concern_detector
+    from app.voice.collection_plan import store_plan
+    from app.voice.screening import CORE_OPENERS, SAFETY_CHECK_QUESTION, Screening, question_item
+
+    for (scale,index), text in CORE_OPENERS.items():
+        assert question_item(text,scale)==index
+        other='PHQ-9' if scale=='GAD-7' else 'GAD-7'
+        assert question_item(text,other) is None
+
+    async def later(data):
+        return dict(decision='no_signal', target_scales=[], evidence=[], transition_ready=False)
+
+    monkeypatch.setattr(concern_detector,'assess',later)
+    actor,_=actors
+    opening='项目上有些事情不顺利。' if prior_task else '我最近觉得心情很低落。'
+    texts=[opening,history_response or '这个问题持续了一周。',
+           '这周还有一些事情要处理。','我可以慢慢梳理一下。','有五天左右。']
+    with cloud(texts,synthesize_speech=True) as (url,events):
+        setup_bridge(monkeypatch,url)
+        monkeypatch.setenv('ROBOT_CARE_GUIDED_SCREENING_ENABLED','true')
+        monkeypatch.setenv('ROBOT_CARE_PURCHASE_NOTICE_VERSION','five-round-test')
+        monkeypatch.setenv('ROBOT_CARE_CONCERN_REVIEW_MODE','post_session')
+        if prior_task:
+            prior=Screening(True,'five-round-test')
+            prior.concern(['existing-task'],'test',['PHQ-9'])
+            prior.history_danger_unresolved=history_response is not None
+            store_plan(actor.uid,api.test_data(),prior)
+        with actor.client.websocket_connect('/api/robot-voice/live') as ws:
+            authenticate(ws,actor)
+            while ws.receive_json()['type']!='audio.done':pass
+            for turn in range(1,6):
+                ws.send_bytes(bytes(640))
+                extra=(turn==1 and history_response is not None) or (turn==4 and expected=='collecting')
+                for _ in range(1+extra):
+                    while ws.receive_json()['type']!='audio.done':pass
+                controller=api.RUNTIMES[actor.uid]['controller']
+                if turn==1 and history_response is not None:
+                    assert controller.safety_check_asked
+                if turn==4 and expected=='collecting':
+                    assert controller.question_context.turn_id=='turn_4'
+            assert controller.stage==expected
+            assert [answer['value'] for answer in controller.answers.values()]==([1] if expected=='collecting' else [])
+            prompts=[e['text'] for e in events if e['type']=='speech_text_buffer.commit']
+            assert (SAFETY_CHECK_QUESTION in prompts)==(history_response is not None)
+            assert sum(text in CORE_OPENERS.values() for text in prompts)==int(expected=='collecting')
+            ws.send_json(dict(type='finish'))
+            while ws.receive_json()['type']!='records.saved':pass
 
 
 def test_diagnostics_identifies_inherited_collection_stop_before_first_user_turn(actors,monkeypatch):

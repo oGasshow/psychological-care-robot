@@ -38,14 +38,16 @@ class ScreeningMonitor:
 
     def snapshot(self):
         data=concern_detector.snapshot(self.turns)
-        early_core=(self.controller.core_only and not self.started_with_task
-                    and not self.controller.history_danger_unresolved)
+        early_core=(self.controller.normal_live or
+                    (self.controller.core_only and not self.started_with_task
+                     and not self.controller.history_danger_unresolved))
         if self.history and not early_core:
             import hashlib,json
             old=concern_detector.snapshot(self.history[-14:])['turns']
             data['turns']=old+data['turns'][-16:]
             data['source_snapshot_hash']=hashlib.sha256(json.dumps(data['turns'],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-        data['historical_danger']=self.controller.history_danger_unresolved
+        data['historical_danger']=(self.controller.needs_current_safety_check if self.controller.normal_live
+                                   else self.controller.history_danger_unresolved)
         if self.controller.demo_mode:data['demo_mode']=True
         if self.controller.core_only:data['core_only']=True
         if early_core:data['early_core']=True
@@ -72,13 +74,15 @@ class ScreeningMonitor:
             self.schedule(force=True)
 
     def schedule(self, *, force=False):
+        if self.controller.normal_live and self.controller.needs_current_safety_check:
+            return
         if (self.controller.streamlined and self.controller.stage=='collecting'
                 and self.controller.question_key is None and self.controller.pending is None):
             return
         post_session=self.controller.review_mode=='post_session'
         if post_session and not self.controller.triggered and not self.controller.core_only:
             return
-        early_core=self.controller.core_only and not self.controller.history_danger_unresolved
+        early_core=self.controller.core_only and not self.controller.needs_current_safety_check
         minimum=1 if self.controller.stage=='collecting' or self.controller.demo_mode or early_core else (2 if post_session else 1 if self.history else 3)
         if (not self.controller.enabled or self.provider != 'doubao_realtime'
                 or self.controller.stage not in ('companionship', 'waiting_context','checking_in','reviewing','collecting')
@@ -92,19 +96,25 @@ class ScreeningMonitor:
         data = self.snapshot()
         if self.queue.full():
             self.queue.get_nowait()
-        self.queue.put_nowait((self.user_count, data))
+        item=self.controller.current() if self.controller.stage=='collecting' else None
+        self.queue.put_nowait((self.user_count, data, item))
         self.scheduled_count = self.user_count
         self.scheduled_revision = self.revision
 
     async def run(self):
         while True:
-            count, data = await self.queue.get()
+            count, data, item = await self.queue.get()
+            collecting = item is not None
+            if collecting and (self.controller.stage!='collecting' or self.controller.current()!=item):
+                continue
+            if not collecting and self.controller.normal_live and (
+                    self.controller.stage in ('collecting','paused','declined','urgent','complete')
+                    or self.controller.needs_current_safety_check):
+                continue
             self.in_flight = True
-            collecting = self.controller.stage == 'collecting'
             try:
                 if collecting:
                     from .answer_extractor import extract
-                    item=self.controller.current()
                     candidate=await extract(data,item)
                     # Never carry an answer candidate across a newer transcript
                     # revision. It may refer to the previous question/answer.
@@ -123,7 +133,7 @@ class ScreeningMonitor:
                     fresh = (self.latest_user_id == data['latest_user_id']
                              and (self.snapshot()['source_snapshot_hash']==data['source_snapshot_hash']
                                   or self.controller.core_only)
-                             and not (self.controller.history_danger_unresolved and count<2))
+                             and not (data.get('historical_danger') and count<2))
                     was_collecting = self.controller.stage == 'collecting'
                     changed = self.controller.apply_decision(result, fresh=fresh)
                     if fresh and not self.controller.core_only and self.controller.reconcile_demo_turns(self.turns):
@@ -148,6 +158,8 @@ class ScreeningMonitor:
                     self.last_error_code = ('answer_candidate_timeout' if isinstance(exc, TimeoutError)
                                             else 'answer_candidate_invalid' if isinstance(exc, ValueError)
                                             else 'answer_candidate_unavailable')
+                elif self.controller.normal_live and self.controller.stage in ('collecting','paused','declined','urgent','complete'):
+                    continue
                 else:
                     self.controller.detector_status = 'unavailable'
                     if isinstance(exc, TimeoutError):

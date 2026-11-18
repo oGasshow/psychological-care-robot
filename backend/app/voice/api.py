@@ -133,9 +133,12 @@ async def diagnostics(response:Response,uid=Depends(owner)):
     elif controller.stage=='paused':message='自动量表采集已暂停，当前语音对话可以继续。'
     elif controller.stage=='urgent':message='本次对话优先提供安全关怀，量表采集已停止。'
     elif controller.stage=='complete':message='关联量表任务已采齐，当前语音对话可以继续。'
-    elif last_error in error_messages:message=error_messages[last_error]
+    elif controller.stage=='checking_in' and controller.core_only:message='正在先了解本次安全情况，确认后才会继续了解近况。'
+    elif last_error in error_messages and not (controller.core_only and controller.stage=='collecting'
+                                                and last_error.startswith('context_detector_')):message=error_messages[last_error]
     elif controller.review_mode=='post_session' and not controller.triggered:message='后台会在对话中查看是否适合继续了解，结束保存后仍可复核。'
     elif controller.stage=='collecting':message='豆包已确认采集指令，可继续自然交流。' if applied==controller.version else '采集任务已下发，正在等待豆包确认。'
+    elif controller.stage=='waiting_context' and controller.core_only:message='已有线索。适合继续时，普通版最迟在第 4 轮回复接上一条近况问题。'
     elif controller.stage=='waiting_context':message='已有进一步了解的线索，正在等待适合自然过渡的对话时机。'
     elif controller.stage=='checking_in':message='已带入历史关注任务，先了解当前感受，不因换通话清除任务。'
     elif monitor and monitor.in_flight:message='正在后台核查对话，语音交流可以继续。'
@@ -375,15 +378,19 @@ async def live(ws:WebSocket):
             silence_limit=sega_live.silence_seconds()
             RUNTIMES[uid]=dict(session_id=recorder.external,queue=queue,controller=controller,transcripts=state,
                                sent_policy_version=None,applied_policy_version=None)
+            policy_update_lock=asyncio.Lock()
             async def update_policy():
-                await asyncio.to_thread(store_plan,uid,test_data(),controller)
-                if checkpoint:checkpoint.request()
-                payload=upstream.session_payload(cfg,instructions=controller.instructions())
-                payload['type']='session.update'
-                pending_versions.append(controller.version)
-                RUNTIMES[uid]['sent_policy_version']=controller.version
-                await remote.send(json.dumps(payload,ensure_ascii=False))
-                await emit(controller.public_status())
+                async with policy_update_lock:
+                    if RUNTIMES[uid]['sent_policy_version']==controller.version:
+                        return
+                    await asyncio.to_thread(store_plan,uid,test_data(),controller)
+                    if checkpoint:checkpoint.request()
+                    payload=upstream.session_payload(cfg,instructions=controller.instructions())
+                    payload['type']='session.update'
+                    pending_versions.append(controller.version)
+                    RUNTIMES[uid]['sent_policy_version']=controller.version
+                    await remote.send(json.dumps(payload,ensure_ascii=False))
+                    await emit(controller.public_status())
             async def receive_control():
                 while True:
                     signal=await queue.get()
@@ -443,6 +450,7 @@ async def live(ws:WebSocket):
                 nonlocal last_activity, session_end_code, analyze_on_close
                 closing_response=None
                 closing_announced=False
+                supplemented_turn=None
                 async for raw_event in remote:
                     event=upstream.decode_event(raw_event);kind=event['type']
                     transport['remote_events']+=1;transport['last_remote_event']=kind
@@ -499,7 +507,21 @@ async def live(ws:WebSocket):
                         if len(pcm)%2 or len(pcm)>256000:raise ValueError('invalid_provider_audio')
                         last_activity=time.monotonic()
                         await emit(dict(type='audio.delta',message_id=entry.message_id,audio=encoded,rate=24000))
+                        entry.audio_sent=bool(pcm) or entry.audio_sent
                     elif kind=='response.output_audio.done' and entry and not entry.interrupted:
+                        user=state.users.get(state.active_user)
+                        if (entry.audio_sent and user and user.final and user.turn_id==entry.turn_id
+                                and not entry.scripted_text and supplemented_turn!=entry.turn_id
+                                and state.queued_speech is None and not finishing.is_set()):
+                            version=controller.version
+                            question=controller.supplemental_question(entry,monitor.user_count)
+                            if question:
+                                supplemented_turn=entry.turn_id
+                                state.queue_speech(question,entry)
+                                await remote.send(json.dumps(
+                                    {'type':'speech_text_buffer.commit','text':question},ensure_ascii=False))
+                            if version!=controller.version:
+                                await update_policy()
                         await emit(dict(type='audio.done',message_id=entry.message_id))
                         if controller.end_after_response and closing_response==entry.message_id:
                             closing_announced=True
