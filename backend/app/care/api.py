@@ -51,6 +51,9 @@ class ReportBody(StrictBody):
 class NarrativeBody(ReportBody):
     source_snapshot_hash:Annotated[str,Field(strict=True,pattern=r'^[a-f0-9]{64}$')]
 
+class SessionNarrativeBody(StrictBody):
+    source_snapshot_hash:Annotated[str,Field(strict=True,pattern=r'^[a-f0-9]{64}$')]
+
 class DemoLine(StrictBody):
     role:Literal['user','assistant']
     content:Annotated[str,Field(strict=True,min_length=1,max_length=8000)]
@@ -236,6 +239,30 @@ def report_narrative(body:NarrativeBody,uid=Depends(owner)):
     if latest['source_snapshot_hash']!=body.source_snapshot_hash:
         raise CareError(409,'report_sources_changed')
     return dict(source_snapshot_hash=body.source_snapshot_hash,narrative=value)
+
+@router.get('/reports/session/{sid}')
+def preview_session_report(sid: ResourceID, uid=Depends(owner)):
+    from .session_report import public_narrative, session_report
+    with transaction() as db:
+        value, facts = session_report(db, uid, sid)
+    return dict(value, **public_narrative(facts))
+
+
+@router.post('/reports/session/{sid}/narrative')
+def session_report_narrative(sid: ResourceID, body: SessionNarrativeBody, uid=Depends(owner)):
+    from .report_narrative import generate
+    from .session_report import public_narrative, session_report
+    with transaction() as db:
+        value, facts = session_report(db, uid, sid)
+    if value['source_snapshot_hash'] != body.source_snapshot_hash:
+        raise CareError(409, 'report_sources_changed')
+    narrative = generate(facts)
+    with transaction() as db:
+        latest, _ = session_report(db, uid, sid)
+    if latest['source_snapshot_hash'] != body.source_snapshot_hash:
+        raise CareError(409, 'report_sources_changed')
+    return public_narrative(facts, narrative)
+
 
 def install(app):
     @app.exception_handler(CareError)

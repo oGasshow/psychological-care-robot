@@ -5,7 +5,7 @@ from ..voice.screening import CollectionTrace,ScreeningResult,has_collected_item
 from .models import InputRevision
 
 
-def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit=100):
+def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit=100,session_only=False):
     query=db.query(RecordSession).filter(RecordSession.user_id==owner,RecordSession.state!='deleted',
         RecordSession.source=='doubao_realtime')
     if session_ids is not None:
@@ -40,7 +40,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                     if not answer:continue
                     messages,source_valid=answer_records(db,owner,session.is_test,answer)
                     answer_sessions.update(m.recording_session_id for m in messages)
-                    valid&=source_valid
+                    item_valid=source_valid
                     by_id={m.id:m for m in messages}
                     by_external=({ref['message_id']:by_id.get(ref['record_id']) for ref in answer['source_refs']}
                         if answer.get('source_refs') else {m.external_message_id:m for m in messages})
@@ -52,20 +52,26 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                     direct=answer.get('confirmation_method')=='explicit_frequency_answer'
                     if (len(user_refs)<(1 if direct else 2) or any(m is None or m.role!='user' or m.text_status!='completed' for m in user_refs)
                             or context is None or context.role!='assistant' or context.text_status!='completed'):
-                        valid=False
+                        item_valid=False
                     if direct and user_refs and user_refs[0] and context:
                         from ..voice.screening import frequency_answer,OPTIONS_BY_SCALE,TOPIC_CUES,question_item
                         import re
-                        valid&=bool(anchor is not None and window is not None and anchor.role=='assistant' and window.text_status=='completed'
+                        item_valid&=bool(anchor is not None and window is not None and anchor.role=='assistant' and window.text_status=='completed'
                             and question_item(anchor.content if re.search(r'两周|十四天|14天',anchor.content) else '最近两周，'+anchor.content,scale['scale'])==index+1
                             and frequency_answer(user_refs[0].content,OPTIONS_BY_SCALE[scale['scale']],context.content,anchor.content)==answer['value']
                             and re.search(r'两周|十四天|14天',window.content)
                             and any(cue in anchor.content for cue in TOPIC_CUES[scale['scale']][index]))
                     linked=[m.id for m in messages]
-                    if allowed_record_ids is not None and not set(linked)<=allowed_record_ids:valid=False
+                    if allowed_record_ids is not None and not set(linked)<=allowed_record_ids:item_valid=False
+                    if session_only and not item_valid:
+                        scale['items'][index]=None
+                        continue
+                    valid&=item_valid
                     references.extend(linked)
                 scale['observed_at']=max(answer_times,default=None)
                 scale['source_recording_session_ids']=sorted(answer_sessions)
+                if session_only:
+                    scale['answered']=sum(a is not None for a in scale.get('items',[]))
             row.update(scales=payload['scales'],source_status='current_original_text' if valid else 'needs_revalidation',
                 source_record_ids=sorted(set(references)))
             if not valid:

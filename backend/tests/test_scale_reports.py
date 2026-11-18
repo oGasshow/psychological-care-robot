@@ -30,6 +30,45 @@ def save(a,s,scale,values):
 def seed(a):
     s=setup_controller();first=save(a,s,'PHQ-9',[2,1,2,1,1,2,1,2,0]);second=save(a,s,'GAD-7',[1,2,1,1,1,2,1]);return first,second,s
 
+
+def test_public_report_uses_only_selected_session_even_with_inherited_items(actors,monkeypatch):
+    a,b=actors
+    s=setup_controller()
+    first=save(a,s,'PHQ-9',[2,1,2,1,1,2,1,2,0])
+    second=save(a,s,'GAD-7',[1,2,1,1,1])
+    path=f'/api/robot-insights/reports/session/{second}'
+    response=a.request('GET',path)
+    assert response.status_code==200
+    report=response.json()
+    assert report['username']=='virtual_a' and report['user_turns']==5
+    assert [(v['scale_id'],v['answered'],v['required'],v['score'],v['answered_max'])
+            for v in report['scores']]==[('GAD-7',5,7,6,15)]
+    assert not {'messages','source_references','report_facts','anonymous_id'} & report.keys()
+    assert b.request('GET',path).status_code==404
+    waiting=a.create('still_open').json()['recording_session_id']
+    assert a.request('GET',f'/api/robot-insights/reports/session/{waiting}').status_code==409
+
+    def generate(facts):
+        assert facts['scope']=={'session_ids':[second]}
+        assert all(row['recording_session_id']==second for row in facts['evidence'])
+        assert first!=second and not facts['comparison_scope']
+        return {'mode':'model','content':{'overview':{'text':'本轮虚构总结'},'conversation_suggestions':[]}}
+
+    monkeypatch.setattr(report_narrative,'generate',generate)
+    narrative=a.request('POST',path+'/narrative',json={'source_snapshot_hash':report['source_snapshot_hash']})
+    assert narrative.status_code==200 and narrative.json()['summary']=='本轮虚构总结'
+
+
+def test_public_report_has_soft_support_flag_without_exporting_raw_expression(actors):
+    a,_=actors
+    sid=a.create('session_support').json()['recording_session_id']
+    assert a.send(sid,1,content='我有点不想活了都。').status_code==201
+    assert a.request('POST',f'/api/robot-records/sessions/{sid}/close',
+        json={'ended_at':now(),'last_sequence_no':1}).status_code==200
+    response=a.request('GET',f'/api/robot-insights/reports/session/{sid}')
+    assert response.status_code==200 and response.json()['support_notice']
+    assert response.json()['scores']==[] and '不想活' not in response.text
+
 def test_normal_standard_results_are_complete_and_explained(actors):
     a,_=actors;first,second,s=seed(a)
     assert s.stage=='complete' and len(s.answers)==16

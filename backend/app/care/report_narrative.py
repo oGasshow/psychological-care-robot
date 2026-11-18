@@ -133,6 +133,8 @@ def generate(facts):
     if not facts['evidence']:
         return fallback('no_suitable_excerpts')
     prompt = (Path(__file__).parent / 'prompts' / 'report_summary_v2.txt').read_text('utf-8')
+    if facts.get('single_session'):
+        prompt += '\n只撰写本次会话的整体感受与具体建议，使用“这次对话”。不要提此前对话、记录编号、系统状态、来源核验、后台处理或未完成的模型分析，不逐句复述原话。不推断诊断、长期状态或未提供的信息。'
     schema = Narrative.model_json_schema()
     evidence_input = {k: facts[k] for k in ('report_facts_version', 'scope', 'comparison_scope', 'data_nature', 'facts', 'evidence', 'evidence_selection')}
     messages = [{'role': 'system', 'content': prompt + '\n输出 JSON Schema：' + json.dumps(schema, ensure_ascii=False)},
