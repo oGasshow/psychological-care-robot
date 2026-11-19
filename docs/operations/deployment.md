@@ -1,4 +1,4 @@
-# 公司合并与数据库操作
+# 部署、升级与数据库操作
 
 [文档导航](../README.md) · [当前状态与已知问题](../status.md)
 
@@ -42,20 +42,146 @@ Linux 服务模板在 deploy/*.service 和 nginx.conf.example，填实际域名/
 
 ## Linux／树莓派运行整套后端时的版本核查
 
-树莓派也可以自行部署服务端，但本项目尚未完成整套服务在树莓派上的真机验收。Windows `.cmd`／`.ps1` 启动器不适用于 Linux，不能复制 Windows 的虚拟环境、前端构建或绝对路径当作已部署。
+本节用于 2026-11-19 验收。设备运行普通模式，API、分析 worker、网页和 SQLite 均在树莓派上，语音由服务端连接豆包。以下路径与仓库的 systemd 模板一致。已有部署使用其他路径、端口或服务名时，按实际配置替换本节示例。验收应用已在 Windows 完成真实豆包语音联调，树莓派整机仍需现场验收。
 
-出现“从仓库拉取后像旧版”时，分别核对以下几项，不先清空数据或重建演示库：
+### 准备环境
 
-1. **源码**：在实际部署目录执行 `git remote -v`、`git branch --show-current`、`git rev-parse HEAD`、`git status --short`、`git ls-remote origin refs/heads/main`。远端应为本项目仓库；完整提交号相同，才表示已提交的源码版本一致。存在未提交修改时先核查，不执行强制覆盖。
-2. **入口**：新版工作台是 `/robot-care`，语音页是 `/robot-care/voice`；原首页 `/`、旧聊天等路由保留。它们不是新版机器人入口。登录后仍可直接访问工作台路径。
-3. **前端构建**：`npm start` 运行已有构建，不会自动重新编译刚拉下来的源码。更新后应在服务实际使用的 `frontend` 中执行 `npm ci`，用正确的 `BACKEND_URL` 执行 `npm run build`，再重启前端。服务端口、构建目录和反向代理目标要一致。
-4. **实际服务目录**：本仓库 systemd 模板写的是 `/opt/xinyi/backend` 和 `/opt/xinyi/frontend`。用 `systemctl cat xinyi-api`、`systemctl cat xinyi-web` 检查机器实际配置；更新另一个克隆目录不会改变正在运行的服务。
-5. **私有配置**：Git 不包含 `backend/.env`、数据库、模型资源或 `runtime/`。整套后端部署到树莓派时，需要在该机器配置语音凭据；使用本仓库 systemd 模板时，环境文件是 `/etc/xinyi/backend.env`。进程环境优先于 `backend/.env`，改好后需重启 API 和 worker，不能只刷新网页。
+使用 64 位 Raspberry Pi OS。后端按锁文件使用 Python 3.13，由 uv 安装到专用虚拟环境。前端用 Node.js 22 LTS，与本次开发环境的主版本相同。Node 和 npm 应安装到部署账号可访问的系统路径。Next.js 16 的最低 Node.js 版本为 20.9。 [Raspberry Pi OS](https://www.raspberrypi.com/documentation/computers/os.html#use-python-on-a-raspberry-pi) · [uv 安装](https://docs.astral.sh/uv/getting-started/installation/) · [Node.js 下载](https://nodejs.org/en/download) · [Next.js 安装要求](https://nextjs.org/docs/app/getting-started/installation#system-requirements)
 
-Windows 现场端口由启动器保存；Linux 模板的前端3000、后端8000只是模板值，不应套用另一台电脑的61500／61499。远程浏览器语音还需要 HTTPS／WSS，见[语音说明](../features/voice.md)。
+```bash
+dpkg --print-architecture
+sudo apt update
+sudo apt install -y git curl ca-certificates
+node --version
+npm --version
+command -v node
+```
 
-SEGA 的本机模型资源和配置也不会随 Git 拉取。本项目当前作者权重推理脚本要求 CUDA，不能因树莓派已经启动网页和 API 就认为 SEGA 已能在树莓派本机运行；该部分需要另行安排 GPU 服务及验证。
+`dpkg --print-architecture` 应输出 `arm64`。后续以 `xinyi` 账号运行应用。首次安装时创建账号和持久目录，再克隆到空的 `/opt/xinyi`。
 
-### 原终端部署范围记录
+```bash
+id xinyi >/dev/null 2>&1 || sudo useradd --system --create-home --shell /usr/sbin/nologin xinyi
+sudo install -d -o xinyi -g xinyi -m 0750 /opt/xinyi /var/lib/xinyi
+sudo -u xinyi -H git clone https://github.com/oGasshow/psychological-care-robot.git /opt/xinyi
+sudo -u xinyi -H sh -c 'curl -fsSL https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/opt/xinyi/.tools/bin sh'
+```
 
-树莓派只放 2.1/2.7 音频输入播放、最终文本事件、robot_client 队列和可选 care_core 规则预览；云端运行 FastAPI、worker、Next 及可选模型。Pi 的 ARM/Python/音频、开机管理、真实语音/策略生效由后续实际设备验证。本轮电脑进程模拟不证明 Pi 兼容。2.5 接入经确认量表记录级版本、完成时间、分数范围和审核引用后再启用可靠 live 展示；当前缺这些证据时显示 unverified。
+### 已有设备先备份
+
+已有部署从这一步开始。先用 systemd 核对实际代码目录、环境文件和运行账号。确认现有会话已保存，记下旧提交号及服务配置。下面的备份命令以标准路径为例。环境文件和语音待传目录也应保留，供原部署继续使用。
+
+```bash
+sudo systemctl cat xinyi-api xinyi-worker xinyi-web
+sudo -u xinyi git -C /opt/xinyi rev-parse HEAD
+sudo -u xinyi git -C /opt/xinyi status --short
+sudo systemctl stop xinyi-web xinyi-worker xinyi-api
+sudo install -d -o xinyi -g xinyi -m 0700 /var/lib/xinyi/backups
+backup_path="/var/lib/xinyi/backups/pre-acceptance-$(date -u +%Y%m%dT%H%M%SZ).db"
+sudo -u xinyi python3 /opt/xinyi/backend/manage_records.py backup \
+  --db /var/lib/xinyi/xinyi.db --output "$backup_path"
+sudo -u xinyi python3 /opt/xinyi/backend/manage_records.py check --db "$backup_path"
+```
+
+有未提交改动时，先确认其用途并保留原目录。备份检查应返回 `integrity_check: ok` 和 `foreign_key_violations: 0`，再继续更新。
+
+### 固定验收提交并构建
+
+在服务实际使用的克隆目录操作，确认 `origin` 指向 `oGasshow/psychological-care-robot`。已有设备如未安装 uv，可运行上面的 uv 安装命令。
+
+```bash
+accepted_rev=4a6d4f254930f83e3e8195c1a68ab9f95c4df07e
+sudo -u xinyi git -C /opt/xinyi remote get-url origin
+sudo -u xinyi -H git -C /opt/xinyi fetch origin main
+sudo -u xinyi -H git -C /opt/xinyi switch --detach "$accepted_rev"
+test "$(sudo -u xinyi git -C /opt/xinyi rev-parse HEAD)" = "$accepted_rev"
+
+sudo -u xinyi -H env UV_PROJECT_ENVIRONMENT=/opt/xinyi/.venv \
+  /opt/xinyi/.tools/bin/uv sync --project /opt/xinyi/backend --locked --no-dev --python 3.13
+sudo -u xinyi /opt/xinyi/.venv/bin/python --version
+
+sudo -u xinyi -H sh -c 'cd /opt/xinyi/frontend &&
+  npm ci --include=dev &&
+  BACKEND_URL=http://127.0.0.1:8000 NEXT_TELEMETRY_DISABLED=1 npm run build'
+```
+
+`switch --detach` 将设备锁定在验收提交。两次依赖安装分别使用 `backend/uv.lock` 与 `frontend/package-lock.json`。`npm start` 会直接使用现有构建，因此更新后应重新构建并确认命令成功。
+
+### 配置树莓派上的私有环境
+
+API 和 worker 共用 `/etc/xinyi/backend.env`。首次部署创建环境文件，已有部署直接编辑并保留原 `SECRET_KEY` 和数据库路径。
+
+```bash
+sudo install -d -m 0750 /etc/xinyi
+sudo test -e /etc/xinyi/backend.env || sudo install -m 0600 /dev/null /etc/xinyi/backend.env
+sudoedit /etc/xinyi/backend.env
+```
+
+```dotenv
+APP_ENV=production
+SECRET_KEY=
+DATABASE_URL=sqlite:////var/lib/xinyi/xinyi.db
+ROBOT_CARE_VOICE_OUTBOX_DIR=/var/lib/xinyi/voice_outbox
+ROBOT_CARE_VOICE_RECORD_BASE_URL=http://127.0.0.1:8000
+
+ROBOT_CARE_VOICE_ENABLED=true
+DOUBAO_VOICE_API_KEY=
+ROBOT_CARE_GUIDED_SCREENING_ENABLED=true
+ROBOT_CARE_PURCHASE_NOTICE_VERSION=
+ROBOT_CARE_CONCERN_REVIEW_MODE=post_session
+ROBOT_CARE_COLLECTION_DEMO=false
+ROBOT_CARE_DEMO_DATABASE=false
+
+ROBOT_CARE_ANALYSIS_ENGINE=doubao_realtime
+ROBOT_CARE_SENTIMENT_TIMEOUT_SECONDS=45
+ROBOT_CARE_LEASE_SECONDS=90
+ROBOT_CARE_REPORT_PROVIDER=doubao_realtime
+ROBOT_CARE_REPORT_TIMEOUT_SECONDS=45
+ROBOT_CARE_ASSESSMENT_PROVIDER=disabled
+```
+
+- **`SECRET_KEY`** 为本站 JWT 和游标密钥，至少 32 字符。首次部署可运行 `sudo -u xinyi /opt/xinyi/.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))'` 后填入。
+- **`DOUBAO_VOICE_API_KEY`** 填具备豆包实时语音全双工资格的服务端 API Key。缺少该值时，网页可打开但语音会显示未配置。完整语音配置见[语音说明](../features/voice.md)。
+- **`ROBOT_CARE_PURCHASE_NOTICE_VERSION`** 填实际生效的采集用途告知版本。启用自动采集时此值必填。`post_session` 是普通版配置名，启用后仍会在通话中按线索收集，结束后再核对。没有启用采集时可将 `ROBOT_CARE_GUIDED_SCREENING_ENABLED` 设为 `false`，保留普通语音陪伴。
+- **`ROBOT_CARE_ASSESSMENT_PROVIDER=disabled`** 关闭旧外部量表输入。对话辅助采集的 PHQ-9／GAD-7 结果仍会显示。此部署流程独立于 SEGA，其作者权重脚本需要 CUDA 环境，现场如需该实验能力按[SEGA 说明](../features/sega.md)配置。
+
+### 启动服务与打开网页
+
+首次部署时安装模板。先核对 [API](../../deploy/xinyi-api.service)、[worker](../../deploy/xinyi-worker.service) 和[前端服务](../../deploy/xinyi-web.service)中的用户、工作目录和可执行文件。前端模板默认用 `/usr/bin/node`。若 Node 安装在其他路径，按实际位置调整前端服务的 `ExecStart`。已有设备可继续使用原服务文件。
+
+```bash
+# 首次安装模板
+sudo install -m 0644 /opt/xinyi/deploy/xinyi-api.service /opt/xinyi/deploy/xinyi-worker.service /opt/xinyi/deploy/xinyi-web.service /etc/systemd/system/
+
+# 首次安装或更新后执行
+sudo systemctl daemon-reload
+sudo systemctl enable xinyi-api xinyi-worker xinyi-web
+sudo systemctl restart xinyi-api xinyi-worker xinyi-web
+sudo systemctl is-active xinyi-api xinyi-worker xinyi-web
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:3000/api/robot-voice/mode
+```
+
+三个服务均应为 `active`，健康检查应返回 `status: healthy`，网页端模式检查应返回 `mode: normal`。首次启动会初始化 SQLite 表。已有库可用上面的 `manage_records.py check` 复核。
+
+在树莓派自身浏览器打开 `http://127.0.0.1:3000/login`。从另一台电脑访问时，使用有可信证书的同源 HTTPS，语音 WebSocket 随之使用 WSS。FastAPI 和 Next.js 保持回环监听。浏览器麦克风需要安全上下文。 [浏览器麦克风权限说明](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia#security)
+
+如需从局域网访问，首次配置可复制 [Nginx 模板](../../deploy/nginx.conf.example)。将 `server_name` 与证书路径改为实际值，并让访问电脑信任该证书。已经配置 HTTPS 的设备可核对现有站点是否将请求和 WebSocket 升级头转给 `127.0.0.1:3000`。如果语音入口经反向代理后被拒绝，在 `backend.env` 中将 `ROBOT_CARE_VOICE_ALLOWED_ORIGINS` 设为浏览器实际使用的完整站点源，包含协议和非默认端口，再重启 API。
+
+```bash
+sudo apt install -y nginx
+sudo install -m 0644 /opt/xinyi/deploy/nginx.conf.example /etc/nginx/sites-available/xinyi
+sudoedit /etc/nginx/sites-available/xinyi
+sudo ln -s /etc/nginx/sites-available/xinyi /etc/nginx/sites-enabled/xinyi
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 现场验收与常见问题
+
+1. **版本与入口**。在 `systemctl cat` 所列实际服务目录核对 `git rev-parse HEAD`，应为本节的完整验收提交。登录后打开 `/robot-care/voice`。如果看到原首页或旧版界面，核对访问地址和前端服务工作目录，再检查该目录是否重新构建并重启。
+2. **语音与保存**。用单独测试账号打开麦克风，确认用户转录、豆包回复和扬声器播放。说「结束吧」后，在「对话记录」看到双方转录。「删除对话」应在测试会话结束后出现，确认后验证该会话及报告不再可见。
+3. **计分与报告**。在普通模式测试一段含虚构低落和焦虑线索的对话，给出明确的近两周频率。可说「你可以继续问我」，覆盖后续未确认项。核对 `/robot-care/assessments` 和 `/robot-care/report` 对同一会话的覆盖率和分数，验证打印页。完整验收的判定为 PHQ-9 9/9 项、GAD-7 7/7 项，具体分数由现场实际回答决定。
+4. **语音配置或连接故障**。若网页提示语音未配置，检查运行中的 API 单元引用的 `EnvironmentFile`，确认已填全双工密钥并重启 API 与 worker。若语音已启用却无法连接，检查浏览器麦克风授权、HTTPS/WSS 转发以及树莓派到豆包服务的出站连接。查看 `sudo journalctl -u xinyi-api -u xinyi-worker -u xinyi-web -n 100 --no-pager`。
+
+如需回退，使用安装前记录的提交和原服务配置，重新构建对应前端。现有数据库及备份保留在独立目录，先在备份副本上验证旧版读取，再决定是否切换数据。
+
+仅把树莓派作麦克风和扬声器终端时，使用[树莓派终端接口](../features/voice.md#树莓派保留入口)，后台仍运行在另一台机器。
