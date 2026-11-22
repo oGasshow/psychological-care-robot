@@ -4,6 +4,8 @@
 
 模型文件：[模型权重交接附件](operations/model-release.md)，提供当前安装的 SEGA 与辅助模型及校验信息。
 
+接手人已有服务器权限时：[一条命令取齐真实运行资料](operations/private-runtime-handoff.md)，无需逐项联系负责人补密钥。
+
 [返回项目首页](../README.md)
 
 当前交接入口：[已完成任务、后续任务与使用手册](PROJECT_HANDOFF_2026-11-22.md)。
