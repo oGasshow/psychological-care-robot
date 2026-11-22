@@ -108,6 +108,9 @@ def install_handlers(app):
 
     @app.exception_handler(SQLAlchemyError)
     async def storage_error(request, exc):
+        from .deployment import role
+        if isinstance(exc,OperationalError) and request.url.path.startswith('/api/auth') and role() in ('edge','central'):
+            return JSONResponse(status_code=503,content={'detail':'服务器数据库暂时不可用，请检查网络连接后重试。','code':'server_storage_unavailable'})
         if request.url.path.startswith((PREFIX, '/api/robot-insights')):
             return error_response(503, 'storage_busy')
         return JSONResponse(status_code=500, content={'detail': 'Storage error'})

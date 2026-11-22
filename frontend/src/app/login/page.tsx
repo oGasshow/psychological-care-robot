@@ -54,7 +54,10 @@ export default function LoginPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || '操作失败');
+        const detail = Array.isArray(data.detail)
+          ? data.detail.map((item: {msg?:string}) => item.msg?.replace(/^Value error,\s*/, '') || '输入无效').join('；')
+          : data.detail;
+        throw new Error(typeof detail === 'string' ? detail : '操作失败，请稍后重试');
       }
 
       if (isLogin) {
