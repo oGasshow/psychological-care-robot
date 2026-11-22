@@ -213,6 +213,8 @@ PostgreSQL 集成测试通过私有环境变量 `ROBOT_CARE_TEST_DATABASE_URL` �
 
 ## 10. 本次上传包含与不包含
 
+另已提供[公开开发资料包说明](operations/public-development-package.md)：包含可重新生成的虚构数据库、公开示例账号、配置模板和[权重获取及校验清单](reference/model-artifacts.json)。这些是开发用示例，不是实际运行凭据或业务数据。
+
 上传：完整可公开源码、锁文件、测试、部署模板、本手册及相关功能文档。
 
 不上传：真实 `.env`、`runtime/`、数据库与备份、账号密码、token、SSH 私钥、含凭据的安装包、模型权重、虚拟环境、`node_modules` 和 `.next` 构建产物。负责人通过单独渠道交接这些私有运行资料。下一个开发者应先阅读本文并复核现状，不把历史记录当作现场验收结果。

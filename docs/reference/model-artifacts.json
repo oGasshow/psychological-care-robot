@@ -1,0 +1,68 @@
+{
+  "purpose": "Public source and checksum index only; no private credentials or dataset content.",
+  "feature_pipeline_status": "These auxiliary models are the project experimental extraction setup, not proof of equivalence to the original author pipeline.",
+  "artifacts": [
+    {
+      "component": "SEGA EATD",
+      "repository": "https://github.com/zhchen18/SEGA",
+      "revision": "0514201653d71728015cf4aea2816c9151b94f71",
+      "path": "EATD/3-model/checkpoints/sega_best.pt",
+      "bytes": 21044229,
+      "sha256": "f9b427f3928a56fde91e25265eea5aac8677e5fd4c369f2cb2ebac438cfbc8bd",
+      "download_method": "git lfs pull --include=EATD/3-model/checkpoints/sega_best.pt"
+    },
+    {
+      "component": "encoder",
+      "repository": "https://huggingface.co/google-bert/bert-base-chinese",
+      "revision": "8f23c25b06e129b6c986331a13d8d025a92cf0ea",
+      "files": [
+        {
+          "file": "model.safetensors",
+          "bytes": 411553788,
+          "sha256": "3404a1ffd8da507042e8161013ba2a4fc49858b4e3f8fbf5ce5724f94883aec3",
+          "download_url": "https://huggingface.co/google-bert/bert-base-chinese/resolve/8f23c25b06e129b6c986331a13d8d025a92cf0ea/model.safetensors"
+        }
+      ]
+    },
+    {
+      "component": "translation",
+      "repository": "https://huggingface.co/Helsinki-NLP/opus-mt-zh-en",
+      "revision": "cf109095479db38d6df799875e34039d4938aaa6",
+      "files": [
+        {
+          "file": "model.safetensors",
+          "bytes": 309965092,
+          "sha256": "9866cb7fcb30bca4c91f0ad2bde4183722bf015461aab8a7a6bea0c2cd030250",
+          "download_url": "https://huggingface.co/Helsinki-NLP/opus-mt-zh-en/resolve/cf109095479db38d6df799875e34039d4938aaa6/model.safetensors"
+        },
+        {
+          "file": "pytorch_model.bin",
+          "bytes": 312087009,
+          "sha256": "9d8ceb91d103ef89400c9d9d62328b4858743cf8924878aee3b8afc594242ce0",
+          "download_url": "https://huggingface.co/Helsinki-NLP/opus-mt-zh-en/resolve/cf109095479db38d6df799875e34039d4938aaa6/pytorch_model.bin"
+        }
+      ]
+    },
+    {
+      "component": "emotion",
+      "repository": "https://huggingface.co/j-hartmann/emotion-english-distilroberta-base",
+      "revision": "0e1cd914e3d46199ed785853e12b57304e04178b",
+      "files": [
+        {
+          "file": "model.safetensors",
+          "bytes": 328507660,
+          "sha256": "b0c44684a44015306b83eeab6ccbe8929574ab0a035ed4608152b4b4fbeb93f9",
+          "download_url": "https://huggingface.co/j-hartmann/emotion-english-distilroberta-base/resolve/0e1cd914e3d46199ed785853e12b57304e04178b/model.safetensors"
+        },
+        {
+          "file": "pytorch_model.bin",
+          "bytes": 328544361,
+          "sha256": "dde1eadd81741344dd707d1c482a3293810eb895c873053213ccdb2b57ca9e95",
+          "download_url": "https://huggingface.co/j-hartmann/emotion-english-distilroberta-base/resolve/0e1cd914e3d46199ed785853e12b57304e04178b/pytorch_model.bin"
+        }
+      ]
+    }
+  ],
+  "lfs_warning": "A 133-byte LFS pointer is not a usable model checkpoint.",
+  "redistribution": "Download from the original authors and review their applicable terms."
+}

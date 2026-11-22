@@ -1,5 +1,7 @@
 # 文档导航
 
+新增：[公开开发资料包](operations/public-development-package.md)，包含虚构示例数据库、配置模板和权重获取清单。
+
 [返回项目首页](../README.md)
 
 当前交接入口：[已完成任务、后续任务与使用手册](PROJECT_HANDOFF_2026-11-22.md)。
