@@ -10,6 +10,8 @@
 - `deploy/edge/*.example`、`deploy/central.env.example`、`deploy/reports-windows/connection.json.example`：部署配置模板。
 - `docs/reference/model-artifacts.json`：原始模型地址、固定提交和实际安装文件 SHA-256；权重从原作者获取，不把作者数据集当作交接附件。
 
+实际权重文件还可从单独的[模型交接附件](model-release.md)取得；开发资料包本身不包含这些大文件。
+
 权重来源：[SEGA 作者仓库](https://github.com/zhchen18/SEGA)、[中文 BERT](https://huggingface.co/google-bert/bert-base-chinese)、[中英翻译模型](https://huggingface.co/Helsinki-NLP/opus-mt-zh-en)、[七类情绪模型](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base)。这些辅助模型是当前项目的实验提取配置，不代表作者定制提取口径已经复现。133 字节 LFS 指针不能作为模型使用。
 
 ## 生成或使用示例数据库
