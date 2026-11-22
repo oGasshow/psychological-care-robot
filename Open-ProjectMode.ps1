@@ -65,7 +65,7 @@ try {
         }
         $address=$baseAddress+'/robot-care/voice'
         Write-Host 'NORMAL MODE - complete scales and cross-call follow-up' -ForegroundColor Green
-        if(-not $NoBrowser) {
+        if(-not $NoBrowser -and $access.deployment_role -ne 'edge') {
             Write-Host ('Local normal-mode login: '+$access.users[0].username)
             Write-Host ('Local normal-mode password: '+$access.users[0].password)
             Write-Host 'Use these credentials only for this normal-mode address. Do not publish.'

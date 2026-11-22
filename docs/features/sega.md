@@ -1,5 +1,7 @@
 # SEGA 实模型实验接入
 
+2026-11-22 架构说明：当前采用终端本地计算、服务器存储与只读管理；SEGA 应在终端适配并验证。下文的 Windows/CUDA 路径和“Pi 调服务器模型”属于历史实现记录，不代表已经完成 ARM 运行。当前执行器仍要求 CUDA，CPU 适配、作者提取口径与业务误判验证见[最新交接手册](../PROJECT_HANDOFF_2026-11-22.md#4-sega-的真实状态与优先待办)。
+
 [文档导航](../README.md) · [当前状态与已知问题](../status.md)
 
 文中的命令与代码路径从仓库根目录理解，另有工作目录说明时按该节执行。
@@ -66,9 +68,9 @@ NPZ 契约：text 与 question 为 `[1,3,L,768]`，audio 为 `[1,3,L,88]`；各 
 
 语音服务持续接收正常麦克风帧时，默认连续 60 秒静默自动结束并保存。可用 `ROBOT_CARE_VOICE_SILENCE_SECONDS` 在 15–300 秒之间调整。手动暂停、音频断流和助手播放期间分别处理。
 
-新增自动实验链路。语音页只在作者权重与本地提取配置可用时提供本次参与选项，需要明确同意暂存本次回答音频并自行提供模型支持的性别输入。服务端使用已完成的回答和上一轮已播放的助手文字配对，至少需要三组。保存完成后进入持久任务，在 SEGA 独立环境内提取特征和推理。任务用完或到期后清除暂存音频。没有播放回执、音频断流、转录更正或特征缺失时，相关输入不会生成账号标记。
+SEGA 输入由受控语音服务接口或原生终端提交，并提供已授权的录音和有依据的性别输入。网页提供语音陪伴和文字记录入口；后续启用网页 SEGA 录音分析时，需要从正式账号资料和授权设置中接入所需字段。服务端使用已完成的回答和上一轮已播放的助手文字配对，至少需要三组。保存完成后进入持久任务，在 SEGA 独立环境内提取特征和推理。任务用完或到期后清除暂存音频。没有播放回执、音频断流、转录更正或特征缺失时，相关输入不会生成账号标记。
 
-后端 `GET /api/robot-voice/sega/followup` 使用本人 JWT，返回 `marked` 和 `source_session_id`。自动分析成功的 `class=1` 形成标记，`class=0` 与失败均不新增标记。测试数据与非测试数据分开。删除来源会话或更正用作依据的转录后，该来源不再参与标记。会话实验接口的 `automatic_status` 可查询后台处理状态。这个分支只写实验标记，与原豆包采集任务及手动 SEGA 实验接口分开。
+后端 `GET /api/robot-voice/sega/followup` 使用本人 JWT，返回 `marked` 和 `source_session_id`。自动语音实验的 `class=1` 需要通过当前用户原话复核后才作为跟进依据，`class=0` 与失败均不新增标记。测试数据与非测试数据分开。删除来源会话或更正用作依据的转录后，该来源不再参与标记。会话实验接口的 `automatic_status` 可查询后台处理状态，`automatic_result` 保留原始分类和 `followup_verification`。
 
 安装提取依赖到 `runtime/sega_env`，包括 `opensmile`、`transformers`、`sentencepiece`。本地 NumPy 1.26 环境使用 `pyarrow==23.0.1`。将 `ROBOT_CARE_SEGA_EXTRACTOR_CONFIG` 配为一个本地 JSON 文件的路径。文本编码器需能输出 768 维 token 向量，情绪模型的标签需覆盖作者顺序的七类。配置中的模型目录使用绝对路径，包含 tokenizer、模型配置和 safetensors 权重。配好后重启 API 和 worker。
 
@@ -106,8 +108,20 @@ NPZ 契约：text 与 question 为 `[1,3,L,768]`，audio 为 `[1,3,L,88]`；各 
 {"user_id": 123, "is_test": true, "marked": true, "source_session_id": 456}
 ```
 
-上游 `class=1` 成功且来源仍有效时返回 `marked: true`。`source_session_id` 可用于下游去重。没有有效标记时返回 `marked: false` 与 `source_session_id: null`。该状态接口仅供下游读取，量表发送流程另行接入。
+上游阳性通过来源核验且仍需跟进时返回 `marked: true`。自动语音实验支路还需要原话复核支持。`source_session_id` 可用于下游去重。没有有效标记时返回 `marked: false` 与 `source_session_id: null`。该状态接口仅供下游读取，量表发送流程另行接入。
 
 `test_only` 省略时默认 `true`。使用本地 BERT、翻译模型或自配音频切窗的实验配置保留 `test_only: true`，待用作者原始特征完成对照后再评估扩展范围。
 
 本地实验配置在 `runtime/sega_extractor.json`。它用 `google-bert/bert-base-chinese` 分别编码问题与回答，用 `Helsinki-NLP/opus-mt-zh-en` 翻译，再用 `j-hartmann/emotion-english-distilroberta-base` 输出七类概率。音频使用 1000 ms 窗口和 500 ms 步长的 eGeMAPSv02。配置文件记录了下载的模型提交。完整对接验证使用虚构转录和合成 PCM，经两个服务接口完成队列、作者权重推理和标记查询。
+
+### 账号状态和量表完成后的对话
+
+`GET /api/robot-voice/care-status` 使用本人 JWT。原 `sega/followup` 和服务端查询接口兼容保留 `marked`、`source_session_id`，同时返回 `care_status`、`care_label`、`needs_collection`、`collection_status`、`scales`、`assessment` 和 `safety_attention`。测试属性严格分开，来源删除或修订后的结果重新核验。
+
+账号状态由仍有效的原话与结果计算。常规陪伴 `routine` 表示目前没有待跟进信号；SEGA 阳性或未完成任务对应 `followup`（待进一步了解）；完整有效 PHQ-9 达到配置分界时对应 `high_concern`（筛查高关注）。三个状态均保留 `clinical_diagnosis=false`。量表任务是否完成单独记录；已有有效高关注结果时，新的未完成任务不覆盖该关注结果。
+
+自动语音实验仍使用未经作者特征对照的本地提取配置。实测发现正常合成语音样例也可能输出 `class=1`，因此该原始输出不会单独建立账号标记。后台原话复核须给出本人当前会话至少两条有效用户依据，包含低落或兴趣减退方向，才可支持跟进。引用助手话语、旧会话片段、更正后的旧依据或无信号复核均不通过。`automatic_result.followup_verification` 区分 `pending_source_review`、`not_supported_by_user_evidence`、`supported_by_user_evidence` 与 `source_changed`。这一策略修正实验结果的使用边界，未校准 SEGA 权重，也未将复核器称为 SEGA。
+
+启用普通采集策略时，SEGA 自动或手动结果可建立一轮 PHQ-9 任务。下一次通话先问候，合适时继续未答方向。量表完成后继续自然陪伴，下一次通话带入完整结果对应的关怀策略。`ROBOT_CARE_PHQ_FOLLOWUP_THRESHOLD` 默认为 10，可设 1–27；这是辅助筛查的待核实参考分界。`ROBOT_CARE_REASSESSMENT_DAYS` 默认为 14，可设 1–90，用于完成后避免重复发起量表。周期内普通 SEGA 阳性不会重复开启同一轮任务，新的危险表达仍优先安全关怀。周期后新的有效来源可启动新一轮，旧来源晚到的结果不重新开题。
+
+已答条目只累计一次。`scales` 返回 `answered`、`required`、`coverage` 和已答小计，并给出尚未答条目对应的总分可能范围。`coverage` 是已答题目占比，未作为概率或临床可信度；分界只应用于完整有效的 PHQ-9。完成时间在本轮后续通话中保持稳定。页面的量表结果区展示账号关注状态与采集覆盖率。

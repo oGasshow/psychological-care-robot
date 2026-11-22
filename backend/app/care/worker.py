@@ -130,6 +130,8 @@ class Worker:
         return True
 
 def main():
+    from ..deployment import require_compute
+    require_compute()
     parser=argparse.ArgumentParser()
     parser.add_argument('--once',action='store_true')
     parser.add_argument('--instance-id',default=None)

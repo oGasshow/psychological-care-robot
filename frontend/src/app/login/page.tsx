@@ -1,12 +1,16 @@
 'use client';
 import DeploymentModeNotice from '@/components/deployment-mode';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [isLogin, setIsLogin] = useState(true);
+  const [deploymentRole, setDeploymentRole] = useState('standalone');
+  useEffect(() => {
+    const request = new AbortController();
+    fetch('/api/deployment', {cache:'no-store',signal:request.signal}).then(response=>response.json()).then(value=>setDeploymentRole(value.role)).catch(()=>{});
+    return()=>request.abort();
+  }, []);
   const [formData, setFormData] = useState({
     username: '',
     password: '',
@@ -58,7 +62,10 @@ export default function LoginPage() {
         localStorage.setItem('access_token', data.access_token);
         sessionStorage.removeItem('care-report-scope');
         localStorage.removeItem('username');
-        router.push('/robot-care');
+        const profileResponse = await fetch('/api/auth/me', { cache: 'no-store', headers: { Authorization: `Bearer ${data.access_token}` } });
+        if (!profileResponse.ok) throw new Error('暂时无法读取账号，请重试登录。');
+        const profile = await profileResponse.json();
+        window.location.replace(profile.can_manage_reports === true ? '/care-admin' : '/robot-care');
       } else {
         // 注册成功：提示并切换到登录
         alert('注册成功！请登录');
@@ -81,15 +88,6 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-purple-50 to-blue-50 flex items-center justify-center px-4 py-20">
-      {/* 返回首页按钮 */}
-      <button
-        onClick={() => router.push('/')}
-        className="absolute top-6 left-6 flex items-center gap-2 text-gray-600 hover:text-gray-800 transition-colors"
-      >
-        <span className="text-xl">←</span>
-        <span>返回首页</span>
-      </button>
-
       {/* 登录/注册卡片 */}
       <div className="w-full max-w-md"><DeploymentModeNotice/>
         <div className="bg-white rounded-3xl shadow-2xl p-8">
@@ -102,7 +100,7 @@ export default function LoginPage() {
               </span>
             </div>
             <p className="text-gray-600">
-              {isLogin ? '欢迎回来' : '创建你的账户'}
+              {deploymentRole==='central'?'管理员报告登录':isLogin ? '登录你的个人对话空间' : '创建你的专属账号'}
             </p>
           </div>
 
@@ -122,7 +120,7 @@ export default function LoginPage() {
             >
               登录
             </button>
-            <button
+            {deploymentRole!=='central'&&<button
               onClick={() => {
                 setIsLogin(false);
                 setError('');
@@ -135,7 +133,7 @@ export default function LoginPage() {
               }`}
             >
               注册
-            </button>
+            </button>}
           </div>
 
           {/* 表单 */}
@@ -213,7 +211,7 @@ export default function LoginPage() {
               <span className="text-blue-500 text-xl">🔒</span>
               <div className="text-sm text-gray-600">
                 <p className="font-semibold text-gray-700 mb-1">隐私保护</p>
-                <p>记录保存在项目后端。请仅在获准环境中使用；本地演示使用虚构测试数据。</p>
+                <p>登录后查看自己的对话与量表进度。每次对话单独保存，未完成的量表可在下次继续。</p>
               </div>
             </div>
           </div>

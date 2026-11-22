@@ -277,6 +277,11 @@ def environment(root,cfg):
             ROBOT_CARE_CONCERN_REVIEW_MODE='live',ROBOT_CARE_VOICE_ENABLED='true')
     else:
         env.update(ROBOT_CARE_COLLECTION_DEMO='false',ROBOT_CARE_RUNTIME_ROLE='normal')
+    if cfg.get('deployment_role')=='edge':
+        if not cfg.get('database_url','').startswith('postgresql+psycopg://'):
+            raise ValueError('edge_requires_remote_postgresql')
+        env.update(APP_ENV='production',DATABASE_URL=cfg['database_url'],ROBOT_CARE_DEPLOYMENT_ROLE='edge',
+            ROBOT_CARE_DEMO_DATABASE='false',ROBOT_CARE_ASSESSMENT_PROVIDER='disabled',ROBOT_CARE_SIMULATOR_ENABLED='false')
     return env
 
 

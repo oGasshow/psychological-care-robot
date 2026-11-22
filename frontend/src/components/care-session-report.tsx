@@ -7,7 +7,7 @@ import type {Page,SessionRecord,SessionScore} from '@/lib/care-types';
 import CareShell,{ErrorBox} from './care-shell';
 
 interface Wording {summary:string;suggestions:string[]}
-interface SessionReport extends Wording {
+export interface SessionReport extends Wording {
   username:string;started_at:string;ended_at:string;generated_at:string;is_test:boolean;
   user_turns:number;emotion_counts:Record<string,number>;scores:SessionScore[];frequencies:Record<string,number>;
   support_notice:boolean;source_snapshot_hash:string;
@@ -116,7 +116,7 @@ export default function SessionReportPage({printMode=false}:{printMode?:boolean}
   </CareShell>;
 }
 
-function Report({value}:{value:SessionReport}){
+export function Report({value,audience='self'}:{value:SessionReport;audience?:'self'|'care_team'}){
   const classified=emotions.reduce((sum,[key])=>sum+(value.emotion_counts[key]||0),0);
   const leaders=emotions.filter(([key])=>value.emotion_counts[key]>0 && emotions.every(([other])=>value.emotion_counts[key]>=value.emotion_counts[other]));
   return <article className="care-report report-template session-report" data-testid="report-dto" data-data-nature={value.is_test?'test_only':'non_test_only'}>
@@ -125,7 +125,7 @@ function Report({value}:{value:SessionReport}){
       <div className="report-identity"><p>生成时间 {date(value.generated_at)}</p>{value.is_test&&<p>演示记录</p>}</div>
     </header>
     {value.support_notice&&<section className="care-notice" data-testid="report-support-notice">
-      <h2>给自己多一点支持</h2><p>这次对话里有些感受听起来很难承受。可以先联系一位信任的人，请对方陪你一起寻求专业支持。如果你此刻担心自己可能受伤，请联系当地紧急服务，或请身边的人陪你去急诊。</p>
+      <h2>{audience==='care_team'?'需要优先人工核实与关怀':'给自己多一点支持'}</h2><p>{audience==='care_team'?'本次对话出现需要优先关注的表达，请由关怀人员核实用户当前状况，并按机构既定流程安排支持。':'这次对话里有些感受听起来很难承受。可以先联系一位信任的人，请对方陪你一起寻求专业支持。如果你此刻担心自己可能受伤，请联系当地紧急服务，或请身边的人陪你去急诊。'}</p>
     </section>}
     <section><h2>本次评分与采集覆盖率</h2>
       {value.scores.length?value.scores.map(s=>{
@@ -144,15 +144,15 @@ function Report({value}:{value:SessionReport}){
       {!!Object.keys(value.frequencies).length&&<p>频率用词 {Object.entries(value.frequencies).map(([word,count])=>`${word} ${count} 次`).join(' · ')}</p>}
     </section>
     <section className="report-overview"><h2>对话总结与分析</h2><p>{value.summary}</p></section>
-    <section className="report-next"><h2>接下来可以尝试</h2><ul>{value.suggestions.map((text,index)=><li key={index}>{text}</li>)}</ul></section>
+    <section className="report-next"><h2>{audience==='care_team'?'关怀参考建议':'接下来可以尝试'}</h2><ul>{value.suggestions.map((text,index)=><li key={index}>{text}</li>)}</ul></section>
     <section className="report-limits"><h2>关于这份报告</h2>
-      <p>本报告回顾你这次对话中的表达，共 {value.user_turns} 条用户发言。短对话能提供初步线索，更充分的交流能为回顾提供更多信息。报告供个人参考，不构成医学判断。</p>
-      <h3>可选外部自评</h3>
+      <p>本报告回顾{audience==='care_team'?'该用户本次':'你这次'}对话中的表达，共 {value.user_turns} 条用户发言。短对话能提供初步线索，更充分的交流能为回顾提供更多信息。报告供{audience==='care_team'?'关怀团队':'个人'}参考，不构成医学判断。</p>
+      {audience==='self'&&<><h3>可选外部自评</h3>
       <p>可以按自己想了解的方向选填。外部自评结果由相应网站提供。</p>
       <ul className="report-self-assessment">
         {selfAssessments.map(([topic,title,url])=><li key={url}>{topic} <a href={url} target="_blank" rel="noreferrer">{title}</a>
           <span className="report-resource-url">{url}</span></li>)}
-      </ul>
+      </ul></>}
     </section>
   </article>;
 }

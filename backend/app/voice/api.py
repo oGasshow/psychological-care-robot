@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import replace
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Request, Response, WebSocket, WebSocketDisconnect
@@ -15,7 +16,7 @@ from typing import Annotated, Literal
 from ..database import SessionLocal
 from ..robot_records import owner, RecordError
 from . import upstream
-from .settings import settings
+from .settings import settings, VoiceName, VOICE_OPTIONS
 from .recording import Recorder, directory as outbox_directory, internal_base, retry
 from .transcripts import Transcripts, Utterance, explicit_end_request, utc_now
 from .screening import Screening, ScreeningResult, save_result, has_collected_items, recall_date
@@ -198,6 +199,12 @@ async def sega_probe(response:Response,uid=Depends(owner)):
     response.headers['Cache-Control']='no-store'
     return await asyncio.to_thread(sega.execute,fixture=True)
 
+@router.get('/care-status')
+def account_care_status(response:Response,uid=Depends(owner)):
+    from .care_status import profile
+    response.headers['Cache-Control']='no-store'
+    return profile(uid,test_data())
+
 @router.get('/sega/followup')
 def sega_followup(response:Response,uid=Depends(owner)):
     response.headers['Cache-Control']='no-store'
@@ -220,6 +227,8 @@ class Authenticate(BaseModel):
     device_id:Annotated[str,Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')]='browser_audio'
     guided_screening:bool|None=None  # Accepted for older clients; not an authorization gate.
     sega_gender:Literal['female','male']|None=None  # Explicit opt-in with a self-reported model input.
+    voice:VoiceName|None=None
+    speed:Annotated[int,Field(ge=-50,le=100)]|None=None
 
 class ConcernSignal(BaseModel):
     model_config=ConfigDict(extra='forbid',strict=True)
@@ -266,13 +275,18 @@ def config(response:Response,uid=Depends(owner)):
         cfg=settings()
         enabled=cfg.enabled and bool(cfg.api_key)
         limit=cfg.session_seconds
+        default_voice=cfg.voice if any(v['id']==cfg.voice for v in VOICE_OPTIONS) else VOICE_OPTIONS[0]['id']
+        default_speed=cfg.speed
     except (ValueError,TypeError):
         enabled,limit=False,900
+        default_voice=VOICE_OPTIONS[0]['id']
+        default_speed=0
     try:
         policy=collection_policy();conditional_enabled=policy.enabled;review_mode=policy.review_mode;demo_mode=policy.demo_mode
     except (ValueError,TypeError):conditional_enabled,review_mode,demo_mode=False,'post_session',False
     return dict(enabled=enabled,input_rate=16000,output_rate=24000,frame_bytes=640,
                 session_seconds=limit,is_test=test_data(),protocol='voice-bridge-v1',
+                voices=VOICE_OPTIONS,default_voice=default_voice,default_speed=default_speed,
                 conditional_collection_enabled=conditional_enabled,
                 concern_review_mode=review_mode,
                 demo_mode=demo_mode,
@@ -303,6 +317,10 @@ def origin_allowed(ws):
 
 @router.websocket('/live')
 async def live(ws:WebSocket):
+    from ..deployment import role
+    if role() == 'central':
+        await ws.close(code=1008)
+        return
     if not origin_allowed(ws):
         await ws.close(code=4403);return
     await ws.accept()
@@ -333,6 +351,8 @@ async def live(ws:WebSocket):
             await emit(dict(type='error',code='voice_session_active',message='已有语音会话正在进行，请先结束另一处会话。'));return
         ACTIVE.add(uid);reserved=True
         cfg=settings()
+        if auth.voice is not None:cfg=replace(cfg,voice=auth.voice)
+        if auth.speed is not None:cfg=replace(cfg,speed=auth.speed)
         if not cfg.enabled or not cfg.api_key:
             await emit(dict(type='error',code='voice_not_configured',message='语音服务尚未配置。'));return
         if auth.sega_gender and not controller.demo_mode and sega_live.available() and sega_live.allowed_for(test_data()):
@@ -350,6 +370,8 @@ async def live(ws:WebSocket):
                     await emit(dict(type='error',code='record_recovery_pending',
                         message='上次对话的原话仍待保存，请先重试保存后再继续，已采集进度会保留。'))
                     return
+            from .collection_plan import prepare_sega_plan
+            await asyncio.to_thread(prepare_sega_plan,uid,test_data())
             plan=await asyncio.to_thread(read_plan,uid,test_data())
             context=await asyncio.to_thread(recent_context,uid,is_test=test_data(),
                 after=plan.get('completed_at') if plan and not plan['needs_collection'] else None)
@@ -359,6 +381,10 @@ async def live(ws:WebSocket):
                     and controller.stage in ('waiting_context','checking_in')):
                 controller.window_end=recall_date(utc_now())
         else:context={'turns':[],'references':{}}
+        if not controller.demo_mode:
+            from .care_status import profile,instructions as care_instructions
+            care=await asyncio.to_thread(profile,uid,test_data())
+            controller.care_background=care_instructions(care)
         async with upstream.connection(cfg,instructions=controller.instructions()) as (remote,created):
             await remote.send(json.dumps({'type':'input_audio_mute.commit'}))
             recorder=await asyncio.to_thread(Recorder,uid,auth.token,base,is_test=test_data(),device_id=auth.device_id)
@@ -432,7 +458,8 @@ async def live(ws:WebSocket):
                             is_test=test_data(),protocol='voice-bridge-v1'))
             # Scan and retry older outboxes in the background. Exclude the live
             # session database so recovery can never close the current call.
-            schedule_outbox_retry(uid,auth.token,base,recorder.box.path)
+            if getattr(recorder,'persistent_local',True):
+                schedule_outbox_retry(uid,auth.token,base,recorder.box.path)
             greeting=Utterance('greeting','assistant','turn_0',text=upstream.GREETING,final=True,occurred_at=utc_now())
             state.responses['greeting']=greeting;state.active_response='greeting'
             await persist(greeting);await emit(greeting.public(True))

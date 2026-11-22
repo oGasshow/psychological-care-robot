@@ -1,0 +1,14 @@
+[Unit]
+Description=Robot Care local terminal API
+After=robot-care-edge-tunnel.service
+Requires=robot-care-edge-tunnel.service
+[Service]
+User=careedge
+WorkingDirectory=/opt/robot-care-edge/backend
+EnvironmentFile=/etc/robot-care-edge/edge.env
+ExecStart=/opt/robot-care-edge/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+UMask=0077
+[Install]
+WantedBy=multi-user.target

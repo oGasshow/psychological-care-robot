@@ -125,7 +125,14 @@ def owner(credentials=Depends(bearer), db=Depends(get_db)):
 def transaction(write=False):
     with SessionLocal() as db:
         # Explicit BEGIN also gives multi-query GETs a consistent SQLite snapshot.
-        db.execute(text('BEGIN IMMEDIATE' if write else 'BEGIN'))
+        if db.bind.dialect.name == 'sqlite':
+            db.execute(text('BEGIN IMMEDIATE' if write else 'BEGIN'))
+        elif write:
+            # Match the serialized writer contract of BEGIN IMMEDIATE across devices.
+            db.execute(text("SET LOCAL lock_timeout = '5s'"))
+            db.execute(text('SELECT pg_advisory_xact_lock(783241908)'))
+        else:
+            db.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'))
         try:
             yield db
             db.commit()

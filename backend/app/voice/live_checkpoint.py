@@ -58,7 +58,10 @@ class LiveCheckpoint:
             except asyncio.CancelledError:raise
             except Exception:
                 logger.warning('collection_live_checkpoint_deferred')
-                await self.emit(dict(type='screening.save_pending',message='采集原话已写入本地队列，正在等待后台同步；结束后会自动继续核对。'))
+                from ..deployment import edge
+                message=('服务器保存尚未确认，请保持网络连接；未确认的数据不会显示为已保存。' if edge() else
+                         '采集原话已写入本地队列，正在等待后台同步；结束后会自动继续核对。')
+                await self.emit(dict(type='screening.save_pending',message=message))
     async def close(self):
         self.closed=True
         await self.queue.put(None)

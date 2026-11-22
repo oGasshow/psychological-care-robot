@@ -12,7 +12,16 @@ from pathlib import Path
 import pytest
 
 RUN_ROOT = Path(tempfile.mkdtemp(prefix='module24-tests-'))
-os.environ['DATABASE_URL'] = 'sqlite:///' + (RUN_ROOT / 'server.db').as_posix()
+test_database = os.getenv('ROBOT_CARE_TEST_DATABASE_URL')
+if test_database:
+    from sqlalchemy.engine import make_url
+    test_url = make_url(test_database)
+    if (test_url.drivername != 'postgresql+psycopg' or
+            not (test_url.database or '').startswith('robot_care_test_') or
+            test_url.host not in ('127.0.0.1','localhost')):
+        raise RuntimeError('Refusing non-isolated PostgreSQL test database')
+os.environ['DATABASE_URL'] = test_database or ('sqlite:///' + (RUN_ROOT / 'server.db').as_posix())
+os.environ['ROBOT_CARE_DEPLOYMENT_ROLE'] = 'standalone'
 os.environ['SECRET_KEY'] = 'fictional-test-only-secret-key-32-characters'
 os.environ['SQLITE_BUSY_MS'] = '80'
 os.environ['MODELSCOPE_API_KEY'] = ''

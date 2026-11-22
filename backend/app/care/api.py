@@ -208,8 +208,9 @@ def get_assessments(uid=Depends(owner)):
         from ..voice.screening_policy import collection_demo_enabled
         collections=collection_history(db,uid,verify_current=True)
         from .scale_catalog import summarize
+        from ..voice.care_status import profile_in_db
         return dict(**assessments(db,uid),scale_summaries=summarize(collections),conversation_collections=collections,conversation_limit=100,
-            collection_plan=public_plan(uid,test_data(),db=db),after_call_reviews=public_reviews(uid,test_data(),db=db),
+            collection_plan=public_plan(uid,test_data(),db=db),care_status=profile_in_db(db,uid,test_data()),after_call_reviews=public_reviews(uid,test_data(),db=db),
             demo_mode=collection_demo_enabled(),
             after_call_review_mode='post_session' if after_call_policy() else 'disabled')
 
@@ -254,26 +255,16 @@ def preview_window_report(time_from: UTCText, time_to: UTCText, uid=Depends(owne
 
 @router.get('/reports/session/{sid}')
 def preview_session_report(sid: ResourceID, uid=Depends(owner)):
-    from .session_report import public_narrative, session_report
+    from .report_delivery import read_report
     with transaction() as db:
-        value, facts = session_report(db, uid, sid)
-    return dict(value, **public_narrative(facts))
+        value, _ = read_report(db, uid, sid)
+    return value
 
 
 @router.post('/reports/session/{sid}/narrative')
 def session_report_narrative(sid: ResourceID, body: SessionNarrativeBody, uid=Depends(owner)):
-    from .report_narrative import generate
-    from .session_report import public_narrative, session_report
-    with transaction() as db:
-        value, facts = session_report(db, uid, sid)
-    if value['source_snapshot_hash'] != body.source_snapshot_hash:
-        raise CareError(409, 'report_sources_changed')
-    narrative = generate(facts)
-    with transaction() as db:
-        latest, _ = session_report(db, uid, sid)
-    if latest['source_snapshot_hash'] != body.source_snapshot_hash:
-        raise CareError(409, 'report_sources_changed')
-    return public_narrative(facts, narrative)
+    from .report_delivery import generate_report
+    return generate_report(uid, sid, body.source_snapshot_hash)
 
 
 def install(app):

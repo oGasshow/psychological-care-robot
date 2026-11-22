@@ -1,0 +1,13 @@
+[Unit]
+Description=Robot Care restricted encrypted database forward
+After=network-online.target
+Wants=network-online.target
+[Service]
+User=careedge
+EnvironmentFile=/etc/robot-care-edge/connection.env
+ExecStart=/usr/bin/ssh -N -T -i /etc/robot-care-edge/edge_ed25519 -o BatchMode=yes -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/robot-care-edge/known_hosts -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -L 127.0.0.1:55432:127.0.0.1:5432 ${ROBOT_CARE_SERVER_USER}@${ROBOT_CARE_SERVER_HOST}
+Restart=always
+RestartSec=5
+UMask=0077
+[Install]
+WantedBy=multi-user.target

@@ -5,6 +5,7 @@ from ..database import get_db
 from ..models import User
 from ..schemas import UserRegister, UserLogin, Token, UserResponse, Response
 from ..auth import verify_password, get_password_hash, create_access_token, get_current_user
+from ..care_management import can_manage_reports
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
 
@@ -60,6 +61,12 @@ async def login(user_data: UserLogin, db: Session = Depends(get_db)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="账户已被禁用"
         )
+    from ..deployment import role
+    manager = can_manage_reports(db, user.id)
+    if role() == 'central' and not manager:
+        raise HTTPException(status_code=403, detail='此入口仅供管理员登录，请在终端使用用户账号。')
+    if role() == 'edge' and manager:
+        raise HTTPException(status_code=403, detail='请在服务器管理员入口登录。')
     
     # 生成 JWT token
     access_token = create_access_token(data={"sub": user.username})
@@ -67,6 +74,7 @@ async def login(user_data: UserLogin, db: Session = Depends(get_db)):
     return Token(access_token=access_token)
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """获取当前登录用户信息"""
-    return current_user
+    return dict(id=current_user.id, username=current_user.username, created_at=current_user.created_at,
+                is_active=current_user.is_active, can_manage_reports=can_manage_reports(db, current_user.id))

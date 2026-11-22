@@ -1,6 +1,10 @@
 # 心理疏导机器人系统
 
+**开发接手先读：[项目交接、后续任务与使用手册（2026-11-22）](docs/PROJECT_HANDOFF_2026-11-22.md)。**
+
 面向辅助陪伴机器人的软件项目。网页提供豆包实时语音、对话记录、逐句情绪分析、PHQ-9／GAD-7 对话辅助采集和报告。服务端使用 FastAPI、分析 worker、Next.js 和 SQLite。
+
+当前设备部署采用[树莓派本地运行、服务器统一保存](docs/operations/edge-central.md)：新增 edge/central 角色和服务器 PostgreSQL，用户在本地 HTTP 页面操作；服务器只保存业务数据并提供管理员报告。原 SQLite 单机模式保留兼容。
 
 ## 2026-11-19 验收版本
 
@@ -10,7 +14,7 @@
 
 ## 从这里开始
 
-**先到 `/login` 登录，再进入 `/robot-care`。** 语音入口为 `/robot-care/voice`，量表入口为 `/robot-care/assessments`，单次报告入口为 `/robot-care/report`。仓库仍保留原项目首页 `/`，部署时请核对上述实际验收入口。
+**先到 `/login` 注册或登录。** 普通用户进入 `/robot-care`，每次对话独立保存；授权管理账号进入 `/care-admin`，查看各用户报告。首页 `/` 自动进入个人空间，未登录时进入登录页。语音入口为 `/robot-care/voice`，量表入口为 `/robot-care/assessments`，个人单次报告入口为 `/robot-care/report`。管理账号配置与小程序/App接口见[关怀报告管理端](docs/features/report-management.md)。
 
 下表中的 `.cmd` 和 `.ps1` 启动器适用于 Windows。树莓派通过 systemd 运行 API、worker 和网页服务。
 

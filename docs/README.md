@@ -2,6 +2,8 @@
 
 [返回项目首页](../README.md)
 
+当前交接入口：[已完成任务、后续任务与使用手册](PROJECT_HANDOFF_2026-11-22.md)。
+
 新读者先看[快速开始](getting-started.md)，接手开发先看[当前状态与已知问题](status.md)和[开发指南](development/guide.md)。历史交接记录当时的实现与验证，不作为当前能力承诺。
 
 ## 使用与功能
@@ -14,6 +16,7 @@
 | [逐句情绪与危险表达](features/sentiment.md) | 用户分类、独立提示、版本与重试 |
 | [对话辅助量表采集](features/screening.md) | 触发、持久任务、候选、确认与跨会话依据 |
 | [近期陪伴报告](features/reports.md) | 报告模板、来源统计、模型文字与打印 |
+| [关怀报告管理端](features/report-management.md) | 管理账号、全部用户报告查看与小程序/App接口 |
 | [SEGA 实模型实验接入](features/sega.md) | 作者权重、实际验证、特征契约与未完成部分 |
 
 ## 架构、配置与部署
@@ -25,6 +28,7 @@
 | [配置与接口索引](reference/configuration.md) | 服务端配置、核心接口与专项配置入口 |
 | [安装与交付验证](operations/installation.md) | 工具、依赖锁、隔离演示与交付复核命令 |
 | [部署与数据库迁移](operations/deployment.md) | 备份恢复、服务模板、公司与 Pi 对接 |
+| [树莓派本地运行、服务器保存](operations/edge-central.md) | 当前终端/存储分工、私有安装包、加密连接与管理员入口 |
 | [当前状态与已知问题](status.md) | 已实现能力、未完成环节及验证口径 |
 
 ## 开发与局部说明

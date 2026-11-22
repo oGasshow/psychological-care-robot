@@ -95,6 +95,9 @@ class SegaVoiceJob(Base):
 
 
 def extractor_config():
+    from ..deployment import edge
+    from ..private_temp import volatile_available
+    if edge() and not volatile_available():return None
     path = os.getenv('ROBOT_CARE_SEGA_EXTRACTOR_CONFIG')
     if not path:
         return None
@@ -176,7 +179,8 @@ def infer(config, inputs, audio):
     python, _ = sega.config()
     env = {key: val for key, val in os.environ.items() if not any(
         word in key.upper() for word in ('KEY','TOKEN','PASSWORD','SECRET','DATABASE_URL'))}
-    with tempfile.TemporaryDirectory(prefix='sega-voice-') as directory:
+    from ..private_temp import sensitive_directory
+    with sensitive_directory('sega-voice-') as directory:
         path = Path(directory)
         (path/'input.json').write_text(json.dumps(inputs, ensure_ascii=False), encoding='utf-8')
         (path/'audio.pcm').write_bytes(audio)
@@ -244,6 +248,9 @@ def step():
             job.result = {**value, 'input_revisions': revisions, 'analyzed_at': now()}
         else:
             job.state = 'failed'
+        owner, is_test = job.owner, job.is_test
+    from .collection_plan import prepare_sega_plan
+    prepare_sega_plan(owner, is_test)
     return True
 
 
@@ -259,11 +266,5 @@ def run(stop):
 
 
 def followup(uid, is_test):
-    with transaction() as db:
-        jobs = db.query(SegaVoiceJob).filter_by(owner=uid, is_test=is_test).order_by(SegaVoiceJob.session_id.desc())
-        for job in jobs.filter_by(state='succeeded'):
-            if job.result['model_class'] == 1 and all(
-                revision(db, int(rid)) == version for rid, version in job.result['input_revisions'].items()
-            ):
-                return {'marked': True, 'source_session_id': job.session_id}
-        return {'marked': False, 'source_session_id': None}
+    from .care_status import profile
+    return profile(uid, is_test)

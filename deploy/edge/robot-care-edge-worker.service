@@ -1,0 +1,14 @@
+[Unit]
+Description=Robot Care local analysis worker
+After=robot-care-edge-api.service
+Requires=robot-care-edge-api.service
+[Service]
+User=careedge
+WorkingDirectory=/opt/robot-care-edge/backend
+EnvironmentFile=/etc/robot-care-edge/edge.env
+ExecStart=/opt/robot-care-edge/.venv/bin/python -m app.care.worker --instance-id raspberry-pi-edge
+Restart=on-failure
+RestartSec=5
+UMask=0077
+[Install]
+WantedBy=multi-user.target

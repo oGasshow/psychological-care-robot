@@ -33,6 +33,7 @@ class UserResponse(BaseModel):
     username: str
     created_at: datetime
     is_active: bool
+    can_manage_reports: bool = False
 
     class Config:
         from_attributes = True

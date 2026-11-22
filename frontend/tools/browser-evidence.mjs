@@ -29,8 +29,8 @@ async function api(route,body,method){return await page.evaluate(async({route,bo
 function assert(condition,message){if(!condition)throw new Error(message);}
 try{
   await page.goto(`${origin}/robot-care`,{waitUntil:'networkidle'});
-  await page.getByRole('alert').first().waitFor();
-  assert(await page.getByText('重新登录',{exact:true}).count()>0,'Anonymous page must require existing login');
+  await page.waitForURL(`${origin}/login`);
+  assert(await page.getByTestId('history-list').count()===0,'Anonymous page must not render account records');
   await shot('01_login_required.png');record('login_required');
   await page.goto(`${origin}/login`,{waitUntil:'networkidle'});
   await page.locator('input[name="username"]').fill(username);

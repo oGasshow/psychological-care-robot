@@ -34,7 +34,7 @@ class NoRedirectConnect(connect):
 def session_payload(config, instructions=COMPANION_PROMPT, tools=None):
     session = dict(model=config.model, instructions=instructions,
                    audio=dict(input={'format': {'type': 'pcm', 'rate': 16000}},
-                              output={'format': {'type': 'pcm_s16le', 'rate': 24000}, 'voice': config.voice}))
+                              output={'format': {'type': 'pcm_s16le', 'rate': 24000}, 'voice': config.voice, 'speed': config.speed}))
     if tools:
         session['tools'] = tools
     return dict(type='session.create', session=session, extension={'asr': {}, 'tts': {}, 'dialog': {}})

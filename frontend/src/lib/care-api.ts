@@ -2,7 +2,7 @@ export type Data = Record<string, unknown>;
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string) {
-    super(status === 401 ? '登录已失效，请重新登录。' : status === 403 ? '当前账号不可用。' : status === 404 ? '记录不存在或不属于当前用户。' : status === 410 ? '会话已删除，无法继续读取。' : status === 409 ? '记录版本已经变化，请刷新后重试。' : status === 422 ? '字段或范围无效，请检查输入。' : '服务暂不可用，请稍后重试。');
+    super(status === 401 ? '登录已失效，请重新登录。' : status === 403 ? (code === 'management_access_required' ? '此账号没有报告管理权限。' : '当前账号不可用。') : status === 404 ? '记录不存在或不属于当前用户。' : status === 410 ? '会话已删除，无法继续读取。' : status === 409 ? '记录版本已经变化，请刷新后重试。' : status === 422 ? '字段或范围无效，请检查输入。' : '服务暂不可用，请稍后重试。');
   }
 }
 
@@ -15,7 +15,10 @@ export async function api<T = Data>(path: string, init: RequestInit = {}): Promi
   });
   const data: unknown = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (response.status === 401) localStorage.removeItem('access_token');
+    if (response.status === 401 && localStorage.getItem('access_token') === token) {
+      localStorage.removeItem('access_token');
+      window.dispatchEvent(new Event('care-auth-required'));
+    }
     const error = isRecord(data) && isRecord(data.error) ? data.error : undefined;
     throw new ApiError(response.status, typeof error?.code === 'string' ? error.code : 'request_failed');
   }

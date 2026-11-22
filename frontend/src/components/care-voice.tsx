@@ -19,7 +19,8 @@ export default function CareVoice(){
   const [screening,setScreening]=useState<ScreeningStatus|null>(null);
   const [savedProgress,setSavedProgress]=useState<CollectionSaveReceipt|null>(null),[savePending,setSavePending]=useState(false);
   const [stalled,setStalled]=useState(false);
-  const [segaGender,setSegaGender]=useState('');
+  const [voice,setVoice]=useState('');
+  const [speed,setSpeed]=useState(0);
   const socket=useRef<WebSocket|null>(null),context=useRef<AudioContext|null>(null),media=useRef<MediaStream|null>(null);
   const capture=useRef<AudioWorkletNode|null>(null),ready=useRef(false),micMuted=useRef(false),stopping=useRef(false);
   const nodes=useRef(new Map<AudioBufferSourceNode,string>()),audioDone=useRef(new Set<string>()),blocked=useRef(new Set<string>());
@@ -40,7 +41,7 @@ export default function CareVoice(){
     capture.current?.disconnect();capture.current=null;clearPlayback();
     if(context.current){void context.current.close().catch(()=>{});context.current=null;}
   },[clearPlayback]);
-  useEffect(()=>{let active=true;api<VoiceConfig>('robot-voice/config').then(v=>{if(active)setConfig(v);}).catch(e=>{if(active)setError(e);});return()=>{active=false;socket.current?.close();releaseAudio();};},[releaseAudio]);
+  useEffect(()=>{let active=true;api<VoiceConfig>('robot-voice/config').then(v=>{if(active){setConfig(v);setVoice(v.default_voice||'');setSpeed(v.default_speed??0);}}).catch(e=>{if(active)setError(e);});return()=>{active=false;socket.current?.close();releaseAudio();};},[releaseAudio]);
   function interrupt(){clearPlayback();send({type:'interrupt'});setState('interrupted');setNotice('旧回复已停止，可以继续说。');}
   function finish(){
     stopping.current=true;ready.current=false;media.current?.getTracks().forEach(t=>t.stop());clearPlayback();setLevel(0);setState('ending');
@@ -77,9 +78,7 @@ export default function CareVoice(){
     else if(event.type==='status'){setNotice(event.message||'');}
     else if(event.type==='error'){setError(new Error(event.message||'语音连接异常，请稍后重试。'));setState('error');ready.current=false;media.current?.getTracks().forEach(t=>t.stop());}
   }
-  async function start(useSegaConsent=true){
-    const captureGender=useSegaConsent&&config?.sega_capture_available?segaGender:'';
-    setSegaGender('');
+  async function start(){
     setDebug(null);setSavedProgress(null);setSavePending(false);
     socket.current?.close();socket.current=null;
     releaseAudio();setError(null);setLines([]);setRecording(null);setMuted(false);micMuted.current=false;stopping.current=false;
@@ -98,14 +97,15 @@ export default function CareVoice(){
       const ws=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/robot-voice/live`);socket.current=ws;
       ws.onopen=()=>{
         ws.send(JSON.stringify({type:'authenticate',token,device_id:'windows_browser',
-          ...(captureGender?{sega_gender:captureGender}:{})}));
+          speed,
+          ...(voice?{voice}:{})}));
         watchdog.current=setInterval(()=>{
           if(replyWait.current&&Date.now()-replyWait.current>25000&&!stopping.current){setStalled(true);setNotice('回复等待较久，可先发送当前这句话，或重新连接；已有最终文字会保留。');}
         },1000);
       };
       ws.onmessage=e=>{if(socket.current!==ws)return;try{receive(JSON.parse(e.data));}catch{setError(new Error('收到的语音数据无法处理，请重新开始。'));finish();}};
       ws.onerror=()=>{if(socket.current!==ws)return;setError(new Error('语音连接未能建立，请检查服务状态后重试。'));setState('error');releaseAudio();};
-      ws.onclose=()=>{if(socket.current!==ws)return;socket.current=null;releaseAudio();setLevel(0);setState(old=>old==='error'?'error':'ended');if(reconnecting.current){reconnecting.current=false;window.setTimeout(()=>void start(false),0);}};
+      ws.onclose=()=>{if(socket.current!==ws)return;socket.current=null;releaseAudio();setLevel(0);setState(old=>old==='error'?'error':'ended');if(reconnecting.current){reconnecting.current=false;window.setTimeout(()=>void start(),0);}};
       node.port.onmessage=e=>{
         if(!ready.current||micMuted.current)return;
         const now=Date.now();
@@ -128,13 +128,24 @@ export default function CareVoice(){
   async function demoStart(){try{setError(null);await api('robot-voice/demo/start',{method:'POST'});setNotice('已排队手动启动演示，等待语音服务确认；结果会标记人工触发。');}catch(e){setError(e);}}
   async function demoReset(){try{setError(null);await api('robot-voice/demo/reset',{method:'POST'});setScreening(null);setLines([]);setRecording(null);setSavedProgress(null);setSavePending(false);setNotice('新一轮演示已准备好，已有演示记录仍保留。');}catch(e){setError(e);}}
   const connected=['listening','muted','playing','interrupted'].includes(state),canStart=['idle','ended','error'].includes(state);
+  const speedLabel=Number((1+speed/100).toFixed(2))+' 倍';
   return <CareShell title="和陪伴助手聊一聊">
-    {config?.sega_capture_available&&canStart&&<div className="care-card">
-      <label htmlFor="sega-consent">允许本次暂存回答录音，用于 SEGA 实验分析</label>
-      <select id="sega-consent" value={segaGender} onChange={event=>setSegaGender(event.target.value)}>
-        <option value="">不参与实验分析</option><option value="female">同意，自报性别为女</option><option value="male">同意，自报性别为男</option>
+    {Boolean(config?.voices?.length)&&<section className="care-card">
+      <label htmlFor="voice-choice">助手音色</label>
+      <select id="voice-choice" value={voice} disabled={!canStart} onChange={event=>setVoice(event.target.value)}>
+        {config?.voices?.map(option=><option key={option.id} value={option.id}>{option.name}</option>)}
       </select>
-    </div>}
+      <div style={{marginTop:16}}>
+        <label htmlFor="voice-speed">语速</label>
+        <div className="care-actions">
+          <button type="button" className="care-btn secondary" aria-label="放慢语速" disabled={!canStart||speed<=-50} onClick={()=>setSpeed(value=>Math.max(-50,value-10))}>−</button>
+          <input id="voice-speed" type="range" min={-50} max={100} step={1} value={speed} disabled={!canStart}
+            aria-valuetext={speedLabel} style={{flex:1,minWidth:120,maxWidth:320}} onChange={event=>setSpeed(Number(event.target.value))}/>
+          <button type="button" className="care-btn secondary" aria-label="加快语速" disabled={!canStart||speed>=100} onClick={()=>setSpeed(value=>Math.min(100,value+10))}>+</button>
+          <output htmlFor="voice-speed">{speedLabel}</output>
+        </div>
+      </div>
+    </section>}
     {config?.demo_mode&&<section className="care-card" data-testid="short-collection-demo"><h2>快速采集演示 · 3项自定义指标</h2><p>先说一句自己的近况，例如“最近心情有点低落，做事情没什么兴致”。助手随后简短询问三项近两周情况。可直接回答“有时”“经常这样”“较少”；明确频率会直接计入对应条目，含糊时再补充。</p><p>已确认 {screening?.demo_progress?.answered??0}/3 项{screening?.demo_progress?.total!=null&&<strong data-testid="demo-live-total"> · 演示指标合计 {screening.demo_progress.total}/12</strong>}</p><p className="care-meta">本轮关联任务的累计进度；对话中自动保存，结束时完整归档。不作为完整 PHQ-9／GAD-7 总分。</p>{screening?.trigger_origin==='manual_demo'&&<p className="care-notice">本轮为人工触发演示，未声称由模型自动判定。</p>}<div className="care-actions"><button className="care-btn secondary" disabled={!connected||!lines.some(l=>l.role==='user'&&l.final)||!['companionship','waiting_context'].includes(screening?.stage||'companionship')} onClick={demoStart}>手动启动演示（留痕）</button><button className="care-btn secondary" disabled={!canStart} onClick={demoReset}>准备新一轮演示</button><Link className="care-btn secondary" href="/robot-care/assessments">查看演示采集与分数</Link></div></section>}
     <div className="voice-layout"><section className="care-card voice-console"><div className={`voice-orb ${connected?'active':''}`} aria-hidden="true">声</div><h2>{names[state]||state}</h2><p className="voice-notice" role="status">{notice}</p>{config?.conditional_collection_enabled&&<div className={`voice-screening-state ${screening?.stage==='collecting'?'active':''}`} role="status"><span className="voice-screening-dot" aria-hidden="true"/><div><strong>{screeningLabels[screening?.stage||'']||'会话接通后开始留意'}</strong><p>{screening?.error_code?screeningErrors[screening.error_code]||'后台判断暂不可用，尚未开始进一步了解。':screening?.stage==='urgent'?'先关注此刻感受和安全支持，暂停信息采集。':screening?.stage==='reviewing'?'语音连接仍保持着；后台正在看刚才这段文字，并会尽快回来继续。':screening?.review_status==='pending'?'刚才的梳理还在后台继续；你可以照常和我聊。':screening?.review_status==='normal'?'这段对话暂未安排后续信息采集；可以继续自然聊聊。':screening?.detector_status==='checked'&&!screening?.triggered?'这轮后台判断已完成，目前没有足够线索进入近况梳理；可以继续聊。':(screening?.review_mode||config.concern_review_mode)==='post_session'&&!screening?.triggered?'对话中会留意是否适合进一步了解；条件合适时可在本次开始采集。':screening?.stage==='waiting_context'?'有上次留下的信息需要继续了解，先等合适时机再自然梳理。':screening?.stage==='collecting'?'会沿着对话中相关的方向，一次聊一件；本次确认的量表信息会逐项保存，不等同正式施测或诊断。':'先听你慢慢说；是否继续了解会结合对话判断，不会只按轮数直接打分。'}</p></div></div>}<div className="voice-meter" aria-label="麦克风输入强度"><span style={{width:`${level}%`}}/></div><div className="voice-controls">{canStart?<button className="care-btn" disabled={!config?.enabled} onClick={()=>void start()}>开始语音对话</button>:<><button className="care-btn secondary" disabled={!connected} onClick={toggleMute}>{muted?'继续收音':'暂停收音'}</button><button className="care-btn secondary" disabled={!connected} onClick={interrupt}>打断回复</button><button className="care-btn" disabled={!connected} onClick={finish}>结束并保存</button></>}</div>{config&&!config.enabled&&<p className="care-notice">{config.message}</p>}<ErrorBox error={error}/>{connected&&<div className="care-actions"><button className="care-btn secondary" disabled={!lines.some(l=>l.role==='user'&&!l.final)} onClick={()=>{send({type:'commit'});speech.current.active=false;replyWait.current=Date.now();}}>发送这句话</button><button className="care-btn secondary" onClick={recover}>{stalled?'回复卡住，重新连接并保留记录':'重新连接并保留记录'}</button></div>}<p className="care-meta">{config?.is_test?'当前为联调测试，文字记录带测试标记。':'当前记录带非测试标志；不代表已完成真实性或专业核验。'}</p></section>
     <section className="care-card voice-transcripts"><div className="voice-transcript-heading"><h2>正在聊的内容</h2></div><div aria-live="polite" aria-relevant="additions text" className="voice-lines">{lines.map(line=><article className={`voice-line ${line.role}`} key={line.message_id} data-testid={`voice-line-${line.message_id}`}><header><strong>{line.role==='user'?'您':'陪伴助手'}</strong><span>{line.interrupted?'已打断':line.final?'最终文字':'识别 / 回复中'}</span></header><p>{line.text}</p>{line.occurred_at&&<time>{date(line.occurred_at)}</time>}</article>)}</div></section></div>

@@ -34,6 +34,40 @@ def upload(a,entries,closed=False):
 @pytest.mark.parametrize('text,value',[('这种感觉经常出现呢。',3),('偶尔会有。',1),('我感觉偶尔会出现这种情况吧，最近两周。',1),('这倒是没有。',0),('有时会这样。',2)])
 def test_natural_frequency_in_full_reply(text,value):assert frequency_answer(text,CUSTOM_OPTIONS,'最近两周你会低落吗？')==value
 
+@pytest.mark.parametrize('text,value',[
+ ('回顾最近两周，你刚才问的这个情况，有一半以上的日子会这样。',2),
+ ('最近两周，你刚才问的这种情况，有几天会这样。',1),
+ ('回顾最近十四天，你刚才问的这个情况，几乎每天会出现。',3),
+ ('这种情况我一半以上的日子会有。',2),
+ ('我朋友说，最近两周有一半以上的日子会这样。',None),
+ ('假如最近两周有一半以上的日子会这样。',None),
+ ('最近两周可能有一半以上的日子会这样。',None),
+ ('最近两周有几天，后来超过一半的天数。',None),
+ ('最近两周，我一半以上的日子都看比赛。',None),
+ ('最近两周，我姐姐一半以上的日子会这样。',None),
+])
+def test_standard_frequency_accepts_contextual_wrapper_but_excludes_other_subjects(text,value):
+ assert frequency_answer(text,OPTIONS,'最近两周，大概有几天觉得心情低落？')==value
+
+def test_explicit_denial_of_both_item9_parts_is_scoped_to_that_question():
+ text='回顾最近两周，我完全没有伤害自己的念头，也没有觉得死了更好。'
+ question='最近两周，有没有想过自己死了更好，或伤害自己？'
+ assert frequency_answer(text,OPTIONS,question)==0
+ assert frequency_answer(text,OPTIONS,'最近两周，你会心情低落吗？') is None
+ assert frequency_answer('回顾最近两周，我没有伤害自己的念头，但有几天觉得死了更好。',OPTIONS,question) is None
+
+@pytest.mark.parametrize('index,topic',[(5,'食欲明显减少，或者忍不住吃太多'),(7,'很难集中注意力，比如看书、看电视都没法专心')])
+def test_split_asr_answer_keeps_topic_through_generic_frequency_clarification(index,topic):
+ s=Screening(True,'fictional');s.core_only=True;s.direct_collection=True
+ s.concern(['fictional-signal'],'test',['PHQ-9']);s.stage='collecting'
+ question=utter('最近两周，大概有几天'+topic+'呢？','assistant');s.observe(question)
+ s.observe(utter('回顾最近两周。'))
+ s.observe(utter('我在听着，你可以说说最近两周大概有几天是这样的呀。','assistant'))
+ assert s.question_context is question and s.question_key==f'PHQ-9:{index}'
+ s.observe(utter('你刚才问的这个情况，有一半以上的日子会这样。'))
+ assert s.answers[f'PHQ-9:{index}']['value']==2
+ assert s.answers[f'PHQ-9:{index}']['question_context_id']==question.message_id
+
 @pytest.mark.parametrize('text',['可能经常吧','以前经常，现在偶尔','不经常','我朋友说他经常这样','有一点点，不严重','我经常看比赛'])
 def test_ambiguous_or_unrelated_reply_never_guesses_frequency(text):assert frequency_answer(text,CUSTOM_OPTIONS,'最近两周你会低落吗？') is None
 

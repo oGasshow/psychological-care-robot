@@ -75,10 +75,10 @@ def read_plan_in_db(db,uid,is_test):
 
 def restore(controller,data):
     if not data:return
-    completed_task=bool(controller.streamlined and not data.get('needs_collection') and data.get('status')=='complete'
-        and not data.get('history_danger_unresolved')
-        and (datetime.now(timezone(timedelta(hours=8))).date()-datetime.fromisoformat(data['window_end']).date()).days<14)
-    if not data.get('needs_collection') and not completed_task:return
+    from .care_status import recent_completion
+    completed_task=bool(controller.streamlined and data.get('status')=='complete'
+        and not data.get('history_danger_unresolved') and recent_completion(data))
+    if not data.get('needs_collection') and not completed_task and not data.get('history_danger_unresolved'):return
     controller.episode_id=data['episode_id'];controller.window_end=data['window_end']
     controller.target_scales=list(data.get('target_scales',[]))
     if controller.core_only and not completed_task:
@@ -120,17 +120,44 @@ def store_plan_in_db(db,uid,is_test,controller):
         controller.window_end=datetime.now(timezone(timedelta(hours=8))).date().isoformat()
     complete=bool(controller.target_scales) and controller.stage not in ('urgent','checking_in') and all(f'{s}:{i+1}' in controller.answers for s in controller.target_scales for i in range(len(ITEMS[s])))
     status='complete' if complete else controller.stage
+    completed_at=None
+    if complete:
+        completed_at=now()
+        if previous and previous.payload.get('episode_id')==controller.episode_id and not previous.payload.get('needs_collection'):
+            completed_at=previous.payload.get('completed_at') or completed_at
     payload=dict(needs_collection=not complete,status=status,episode_id=controller.episode_id,
         window_end=controller.window_end,target_scales=controller.target_scales,answers=controller.answers,
         signal_evidence=controller.signals,history_danger_unresolved=controller.history_danger_unresolved or controller.stage=='urgent',
         demo_mode=controller.demo_mode,trigger_origin=controller.trigger_origin,stop_reason=controller.stop_reason,
         detector_version=controller.detector,
         history_session_ids=controller.history_session_ids,observations=controller.observations,formal_assessment=False,
-        completed_at=now() if complete else None)
+        completed_at=completed_at)
     db.merge(CollectionPlan(key=key(uid,is_test),owner=uid,payload=deepcopy(payload),updated_at=now()))
     if controller.streamlined and getattr(controller,'collection_external_session_id',None):
         from .demo_reconciliation import register_in_db
         register_in_db(db,uid,controller.collection_external_session_id,controller)
+
+
+def prepare_sega_plan(uid,is_test):
+    """Create at most one active task from a current SEGA source."""
+    from ..robot_records import transaction
+    from .care_status import positive_source,recent_completion
+    from .screening_policy import collection_policy
+    from .screening import Screening
+    policy=collection_policy()
+    if not policy.enabled or policy.demo_mode:return
+    with transaction(True) as db:
+        plan=read_plan_in_db(db,uid,is_test)
+        if plan and (plan['needs_collection'] or recent_completion(plan)):return
+        source=positive_source(db,uid,is_test,plan.get('completed_at') if plan else None)
+        if source is None:return
+        controller=Screening(True,policy.notice_version)
+        controller.core_only=True
+        controller.review_mode=policy.review_mode
+        messages=db.query(RecordMessage).filter_by(recording_session_id=source.id,role='user',text_status='completed').all()
+        controller.concern([row.external_message_id for row in messages],'sega-followup-v1',['PHQ-9'])
+        controller.history_session_ids=[source.id]
+        store_plan_in_db(db,uid,is_test,controller)
 
 def public_plan(uid,is_test,*,db=None):
     data=read_plan_in_db(db,uid,is_test) if db is not None else read_plan(uid,is_test)

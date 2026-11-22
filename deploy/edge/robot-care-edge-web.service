@@ -1,0 +1,14 @@
+[Unit]
+Description=Robot Care local user interface
+After=robot-care-edge-api.service
+[Service]
+User=careedge
+WorkingDirectory=/opt/robot-care-edge/frontend
+Environment=NODE_ENV=production
+Environment=BACKEND_URL=http://127.0.0.1:8000
+Environment=NEXT_TELEMETRY_DISABLED=1
+ExecStart=/opt/robot-care-edge/node/bin/node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3000
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

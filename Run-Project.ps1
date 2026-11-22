@@ -51,6 +51,11 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $runtimeRoot 'access.json'))) {
         Invoke-Demo 'prepare'
     }
+    $runtimeConfig=Get-Content -LiteralPath (Join-Path $runtimeRoot 'access.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($runtimeConfig.deployment_role -eq 'edge') {
+        & $pythonTool (Join-Path $projectRoot 'backend/tools/start_tunnels.py') --config (Join-Path $projectRoot 'runtime/edge-central/connection.json')
+        if ($LASTEXITCODE -ne 0) { throw 'Server database unavailable; local fallback is disabled.' }
+    }
     if (Test-Path -LiteralPath (Join-Path $runtimeRoot 'pids.json')) { Invoke-Demo 'stop' }
     # Invalidate the existing build when application sources change. The demo
     # runner performs the actual build with its selected backend address.
@@ -85,7 +90,7 @@ try {
     Write-Host ''
     Write-Host ('API docs: ' + $apiAddress + '/docs') -ForegroundColor Green
     if (-not $ApiOnly) { Write-Host ('Web:      ' + $webAddress) -ForegroundColor Green }
-    if (-not $NoCredentials) {
+    if (-not $NoCredentials -and $access.deployment_role -ne 'edge') {
         Write-Host 'Local fictional demo account (do not publish these credentials):'
         Write-Host ('Username: ' + $access.users[0].username)
         Write-Host ('Password: ' + $access.users[0].password)

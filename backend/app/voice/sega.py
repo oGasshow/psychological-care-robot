@@ -48,14 +48,23 @@ def execute(*,fixture=False,features=None):
 def session_status(uid,sid):
     from .sega_live import SegaVoiceJob
     with SessionLocal() as db:
-        owned(db,sid,uid);row=db.get(SegaAnalysis,sid)
-        automatic=db.query(SegaVoiceJob.state).filter_by(session_id=sid,owner=uid).scalar()
+        session=owned(db,sid,uid);row=db.get(SegaAnalysis,sid)
+        job=db.query(SegaVoiceJob).filter_by(session_id=sid,owner=uid).first()
+        automatic=job.state if job else None
+        automatic_result=None
+        if job and job.state=='succeeded' and job.result:
+            from .care_status import automatic_review_status
+            automatic_result={k:job.result[k] for k in ('model_class','engine','source_kind') if k in job.result}
+            automatic_result['followup_verification']=automatic_review_status(db,session)
+            if any((db.get(InputRevision,int(identifier)).revision if db.get(InputRevision,int(identifier)) else 0)!=version
+                   for identifier,version in job.result.get('input_revisions',{}).items()):
+                automatic_result={'followup_verification':'source_changed'}
         result=dict(row.payload) if row and row.owner==uid else None
         if result and any((db.get(InputRevision,int(identifier)).revision if db.get(InputRevision,int(identifier)) else 0)!=revision
                 for identifier,revision in result.get('input_revisions',{}).items()):
             result={k:v for k,v in result.items() if k not in ('model_class','logits')}
             result.update(status='needs_revalidation',reason='source_text_changed')
-        return dict(**status(),result=result,automatic_status=automatic,
+        return dict(**status(),result=result,automatic_status=automatic,automatic_result=automatic_result,
             input_status='available_experimental_features' if row else 'missing_aligned_audio_and_auxiliary_features')
 
 async def analyze_features(uid,sid,request:Request):
@@ -74,7 +83,11 @@ async def analyze_features(uid,sid,request:Request):
             if sum(i.file_size for i in bundle.infolist())>64*1024*1024 or len(bundle.infolist())>10:
                 raise ValueError()
     except (ValueError,zipfile.BadZipFile):raise HTTPException(422,'npz_size_or_structure_invalid') from None
-    with tempfile.TemporaryDirectory(prefix='care-sega-') as temporary:
+    from ..deployment import edge
+    from ..private_temp import volatile_available
+    if edge() and not volatile_available():raise HTTPException(503,'edge_volatile_workspace_unavailable')
+    from ..private_temp import sensitive_directory
+    with sensitive_directory('care-sega-') as temporary:
         file=Path(temporary)/'features.npz';file.write_bytes(data)
         result=await asyncio.to_thread(execute,features=file)
     if result['status']!='succeeded':raise HTTPException(422,'sega_features_or_runtime_invalid')
@@ -94,17 +107,9 @@ async def analyze_features(uid,sid,request:Request):
         is_test=bool(db.get(RecordSession,sid).is_test)
         evidence=[by_id[i].external_message_id for i in result['record_ids']]
     if result['model_class']==1:
-        from .screening_policy import collection_policy
-        from .screening import Screening
-        from .collection_plan import read_plan,restore,store_plan
-        try:policy=collection_policy()
-        except ValueError:policy=None
-        if policy and policy.enabled:
-            controller=Screening(True,policy.notice_version)
-            restore(controller,read_plan(uid,is_test))
-            if controller.stage=='companionship':controller.concern(evidence,result['engine'],['PHQ-9'])
-            controller.history_session_ids=list(dict.fromkeys([*controller.history_session_ids,sid]))
-            store_plan(uid,is_test,controller)
-            result['followup_task_created']=True
-            result['followup_task_note']='实验信号仅建立待进一步了解任务，后续先核对当前对话时机，不直接施测或作诊断。'
+        from .collection_plan import prepare_sega_plan,read_plan
+        prepare_sega_plan(uid,is_test)
+        plan=read_plan(uid,is_test)
+        result['followup_task_created']=bool(plan and plan['needs_collection'])
+        result['followup_task_note']='根据账号已有任务与复测周期保留待跟进状态。'
     return result

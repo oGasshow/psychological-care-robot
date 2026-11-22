@@ -198,8 +198,9 @@ class ReviewWorker:
             from .collection_plan import read_plan_in_db, restore, store_plan_in_db
             from .screening import Screening
             plan = read_plan_in_db(db, row.owner, bool(target.is_test))
+            from .care_status import recent_completion
             already_completed = bool(plan and not plan['needs_collection'] and
-                plan.get('completed_at') and plan['completed_at'] >= (target.ended_at or target.started_at))
+                plan.get('completed_at') and (recent_completion(plan) or plan['completed_at'] >= (target.ended_at or target.started_at)))
             stopped = bool(plan and plan['status'] in ('declined', 'paused'))
             apply_task = result['decision'] == 'follow_up' and not already_completed and not stopped
             if apply_task:
@@ -213,7 +214,9 @@ class ReviewWorker:
                 store_plan_in_db(db, row.owner, bool(target.is_test), controller)
             row.state, row.error_code, row.next_retry_at = 'succeeded', None, None
             row.result = dict(decision=result['decision'], detector_version=result['detector_version'],
-                target_scales=result['target_scales'], applied_to_task=apply_task)
+                target_scales=result['target_scales'], applied_to_task=apply_task,
+                support_refs=[{**row.source_refs[e['message_id']], 'domain': e['domain']}
+                    for e in result.get('evidence',[]) if e['message_id'] in row.source_refs])
         return True
 
     def step(self):

@@ -129,6 +129,8 @@ def enqueue(db,row,uid,configuration=None):
         db.flush()
         return existing,False
     invalidate(db,row.id)
+    from .report_delivery import ReportWording
+    db.query(ReportWording).filter_by(session_id=row.recording_session_id,owner=uid).delete()
     job=AnalysisJob(**key,session_id=row.recording_session_id,input_snapshot_hash=digest(input_data['effective_content']),
         input_snapshot=input_data['effective_content'],config_summary=config['config_summary'],state='pending',attempt=0,created_at=now())
     db.add(job)
@@ -196,6 +198,8 @@ def correct(db,row,uid,body):
 def clear_session(db,sid):
     """Must be called inside the original DELETE's write transaction."""
     session=db.get(RecordSession,sid)
+    from .report_delivery import ReportWording
+    db.query(ReportWording).filter_by(session_id=sid).delete()
     for kind,query in [('record',db.query(RecordMessage.id).filter_by(recording_session_id=sid)),
                        ('job',db.query(AnalysisJob.id).filter_by(session_id=sid)),
                        ('policy',db.query(SupportPolicy.id).filter_by(session_id=sid)),

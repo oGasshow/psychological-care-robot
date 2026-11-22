@@ -77,6 +77,8 @@ export interface CollectionResult {
 }
 export interface CollectionPlan { needs_collection: boolean; status: string; scales: CollectionScale[] }
 export interface AssessmentsData {
+  care_status?: {care_status: string; care_label: string; needs_collection: boolean; collection_status: string;
+    clinical_diagnosis: boolean; scales: {scale: string; answered: number; required: number; coverage: number}[]};
   scale_summaries?: ScaleSummary[];
   demo_mode?: boolean;
   after_call_review_mode?: string; after_call_reviews?: AfterCallReview[];
@@ -135,7 +137,7 @@ export interface ReportData {
 }
 export interface SegaStatus { message: string; probe_allowed: boolean; installed: boolean }
 export interface SegaProbe { status: string; device?: string }
-export interface VoiceConfig { enabled: boolean; conditional_collection_enabled: boolean; is_test: boolean; message: string; concern_review_mode?: string; demo_mode?: boolean; sega_capture_available?: boolean }
+export interface VoiceConfig { enabled: boolean; conditional_collection_enabled: boolean; is_test: boolean; message: string; concern_review_mode?: string; demo_mode?: boolean; sega_capture_available?: boolean; voices?: {id: string; name: string}[]; default_voice?: string; default_speed?: number }
 export interface DeploymentMode { mode:'normal'|'demo'|'unavailable';name:string;demo_mode:boolean;description?:string }
 export interface CollectionSaveReceipt {type:'screening.saved';recording_session_id:number;version:number;saved_at:string;answered:number;required:number;pending_answers:number}
 export interface ScreeningStatus {
