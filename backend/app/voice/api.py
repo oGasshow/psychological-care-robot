@@ -347,6 +347,14 @@ async def live(ws:WebSocket):
         controller.demo_mode=policy.demo_mode and test_data()
         controller.direct_collection=policy.enabled
         uid=await asyncio.to_thread(authenticate_token,auth.token)
+        if os.getenv('ROBOT_CARE_REQUIRE_EMERGENCY_CONTACT','true')=='true':
+            from ..user_profiles import contact_ready
+            from ..robot_records import transaction
+            def ready():
+                with transaction() as db:return contact_ready(db,uid)
+            if not await asyncio.to_thread(ready):
+                await emit(dict(type='error',code='emergency_contact_required',message='开始对话前请先补全紧急联系人。'))
+                return
         if uid in ACTIVE:
             await emit(dict(type='error',code='voice_session_active',message='已有语音会话正在进行，请先结束另一处会话。'));return
         ACTIVE.add(uid);reserved=True

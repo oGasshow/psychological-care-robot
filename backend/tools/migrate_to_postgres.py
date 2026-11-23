@@ -16,14 +16,20 @@ def main():
     os.environ['ROBOT_CARE_DEPLOYMENT_ROLE']='central'
     from app.main import app
     from app.database import Base,engine
-    from sqlalchemy import create_engine,select,func,text
+    from sqlalchemy import create_engine,select,func,text,inspect
     source=create_engine('sqlite:///'+args.source.resolve().as_posix())
     with source.connect() as src,engine.begin() as target:
+        source_tables=set(inspect(src).get_table_names())
         for table in Base.metadata.sorted_tables:
             if target.execute(select(func.count()).select_from(table)).scalar():
                 raise RuntimeError('Target must be empty; existing database was not overwritten.')
         counts={}
         for table in Base.metadata.sorted_tables:
+            if table.name=='user_report_profiles' and table.name not in source_tables:
+                # Pre-profile SQLite archives remain valid; old users have no
+                # metadata until they explicitly provide it.
+                counts[table.name]=0
+                continue
             rows=[dict(row) for row in src.execute(select(table)).mappings()]
             if rows:target.execute(table.insert(),rows)
             counts[table.name]=len(rows)

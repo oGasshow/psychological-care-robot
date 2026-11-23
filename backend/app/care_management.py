@@ -1,5 +1,6 @@
 """Care-team access is granted locally; a public registration never grants it."""
-from typing import Annotated
+from typing import Annotated, Literal
+from pydantic import BaseModel,Field
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import Column, Integer, String, Boolean, Text, ForeignKey, func, select
 from .database import Base
@@ -81,11 +82,35 @@ def user_view(db, user, is_test):
 
 def queries(request: Request):
     allowed = {'q', 'is_test', 'limit', 'cursor'} if request.url.path.endswith('/users') else {'is_test', 'limit', 'cursor'} if request.url.path.endswith('/sessions') else {'is_test'} if request.method == 'GET' and '/users/' in request.url.path else set()
+    if '/template-reports/' in request.url.path:
+        allowed={'period'}
+    if request.url.path.endswith('/safety-alerts'):
+        allowed={'is_test','limit'}
     if any(k not in allowed or len(request.query_params.getlist(k)) != 1 for k in request.query_params):
         raise CareError(422, 'validation_error')
 
 
 router = APIRouter(prefix='/api/care-management', tags=['Care report management'], dependencies=[Depends(queries)])
+
+
+class ContactAcknowledgement(BaseModel):
+    source_hash:Annotated[str,Field(pattern=r'^[a-f0-9]{64}$')]
+
+
+@router.get('/safety-alerts')
+def safety_alerts(is_test:bool=False,limit:Annotated[PageLimit,Query()]=30,mid=Depends(manager)):
+    from .care.safety_alerts import pending_alerts
+    with transaction() as db:value=pending_alerts(db,is_test,limit)
+    record_access(mid,'read_safety_alerts')
+    return value
+
+
+@router.post('/safety-alerts/{sid}/acknowledge')
+def acknowledge_contact(sid:ResourceID,body:ContactAcknowledgement,mid=Depends(manager)):
+    from .care.safety_alerts import acknowledge
+    with transaction(True) as db:
+        uid=report_owner(db,sid)
+        return acknowledge(db,uid,sid,mid,body.source_hash)
 
 
 @router.get('/users')
@@ -144,6 +169,16 @@ def report_owner(db, sid):
         raise CareError(404, 'not_found')
     subject(db, row.user_id)
     return row.user_id
+
+
+@router.get('/template-reports/{sid}')
+def template_report_detail(sid:ResourceID,period:Literal['session','three_days','week']='session',mid=Depends(manager)):
+    from .care.template_report import read_template_report
+    with transaction() as db:
+        uid=report_owner(db,sid)
+        value=read_template_report(db,uid,sid,period)
+    record_access(mid,'read_template_report',uid,sid)
+    return dict(report=value,user_id=uid)
 
 
 @router.get('/reports/{sid}')

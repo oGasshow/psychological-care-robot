@@ -35,7 +35,7 @@ def main():
     from app.voice.collection_plan import store_plan
     with TestClient(app) as client:
         for name in ('development_admin','development_user'):
-            response=client.post('/api/auth/register',json={'username':name,'password':DEMO_PASSWORD})
+            response=client.post('/api/auth/register',json={'username':name,'password':DEMO_PASSWORD,'emergency_contact_name':'虚构演示联系人（非真实）','emergency_contact_phone':'00000000','emergency_contact_authorized':True})
             response.raise_for_status()
         with SessionLocal() as db:
             admin=db.query(User).filter_by(username='development_admin').one()

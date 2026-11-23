@@ -21,7 +21,7 @@ def main():
     from app.database import SessionLocal
     from app.models import User
     from app.auth import get_password_hash
-    from app.schemas import UserRegister
+    from app.schemas import UserAccountCredentials as UserRegister
     from app.care_management import ReportManager
     from app.robot_records import now
     with SessionLocal() as db:

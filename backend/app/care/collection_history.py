@@ -26,7 +26,7 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
             observations=progress.get('observations',[]),history_session_ids=progress.get('history_session_ids',[]),
             history_danger_unresolved=progress.get('history_danger_unresolved',False),
             source_status='no_saved_collection',verification_status='unverified',
-            is_closed=session.state=='closed',current_session_scores=[])
+            is_closed=session.state=='closed',current_session_scores=[],current_session_items=[])
         from ..voice.demo_reconciliation import DemoAnswerReview
         job=db.get(DemoAnswerReview,session.external_session_id)
         if job and job.owner==owner:
@@ -110,12 +110,15 @@ def collection_history(db,owner,*,session_ids=None,allowed_record_ids=None,limit
                 recording_session_id=session.id).all()
             if (len(transcript)==session.last_sequence_no
                     and all(record.recording_session_id==session.id for record in transcript)
+                    and (allowed_record_ids is None or all(record.id in allowed_record_ids for record in transcript))
                     and not db.query(InputRevision.record_id).filter(
                         InputRevision.record_id.in_([record.id for record in transcript])).first()):
                 verified=verify_saved_call_answers(sorted(transcript,key=lambda record:record.sequence_no))
                 for key,answer in verified.items():
                     scale,index=key.split(':')
                     current_items.setdefault((scale,int(index)),answer['value'])
+        row['current_session_items']=[dict(scale_id=scale,item=index,value=value)
+            for (scale,index),value in sorted(current_items.items())]
         for scale in dict.fromkeys(key[0] for key in current_items):
             points=[value for (identifier,index),value in current_items.items()
                     if identifier==scale and 1<=index<=len(ITEMS[scale])]

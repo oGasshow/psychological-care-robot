@@ -27,6 +27,7 @@ os.environ['SQLITE_BUSY_MS'] = '80'
 os.environ['MODELSCOPE_API_KEY'] = ''
 os.environ['DOUBAO_VOICE_API_KEY'] = ''
 os.environ['ROBOT_CARE_VOICE_ENABLED'] = 'false'
+os.environ['ROBOT_CARE_REQUIRE_EMERGENCY_CONTACT'] = 'false'  # Fixture users predate the new requirement; dedicated tests turn it on.
 os.environ['ROBOT_CARE_REPORT_PROVIDER'] = 'disabled'
 os.environ['ROBOT_CARE_ANALYSIS_ENGINE'] = 'rules'
 os.environ['ROBOT_CARE_GUIDED_SCREENING_ENABLED'] = 'false'

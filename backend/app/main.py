@@ -53,7 +53,8 @@ async def deployment_boundary(request, call_next):
     path = request.url.path
     if role() == 'central' and path.startswith('/api/'):
         allowed = (path in ('/api/auth/login', '/api/auth/me', '/api/deployment') or
-                   (request.method == 'GET' and path.startswith('/api/care-management/')))
+                   (request.method == 'GET' and path.startswith('/api/care-management/')) or
+                   (request.method == 'POST' and __import__('re').fullmatch(r'/api/care-management/safety-alerts/[1-9]\d*/acknowledge',path)))
         if not allowed:
             return JSONResponse(status_code=403, content={'detail':'当前服务仅提供管理员登录和报告读取。'})
     if role() == 'edge' and path.startswith('/api/care-management'):

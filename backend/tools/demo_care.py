@@ -23,6 +23,15 @@ PROJECT=BACKEND.parent
 sys.path.insert(0,str(BACKEND))
 NO_WINDOW=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
 
+def registration_payload(user):
+    """Only this tool's explicitly fictional users receive fictional contacts."""
+    body={k:user[k] for k in ('username','password')}
+    fields=('emergency_contact_name','emergency_contact_phone','emergency_contact_authorized')
+    if all(key in user for key in fields):return dict(body,**{key:user[key] for key in fields})
+    if not user['username'].startswith('virtual_'):
+        raise RuntimeError('Emergency contact required; register the user through the page first.')
+    return dict(body,emergency_contact_name='虚构演示联系人（非真实）',emergency_contact_phone='00000000',emergency_contact_authorized=True)
+
 class ProcessIdentityError(Exception):
     """Identity could not be proved; never use this as permission to signal."""
 
@@ -372,7 +381,7 @@ def start(root,cfg,frontend=True):
                 cfg['session_ids']=[]
                 with httpx.Client(base_url=base,trust_env=False,timeout=5) as client:
                     for user in cfg['users']:
-                        response=client.post('/api/auth/register',json={k:user[k] for k in ('username','password')})
+                        response=client.post('/api/auth/register',json=registration_payload(user))
                         response.raise_for_status()
                         response=client.post('/api/auth/login',json={k:user[k] for k in ('username','password')})
                         response.raise_for_status()
@@ -446,7 +455,7 @@ def seed_presentation(base,cfg,fixture):
     cfg['session_ids']=[]
     with httpx.Client(base_url=base,trust_env=False,timeout=5) as client:
         for index,user in enumerate(cfg['users']):
-            r=client.post('/api/auth/register',json={k:user[k] for k in ('username','password')});r.raise_for_status()
+            r=client.post('/api/auth/register',json=registration_payload(user));r.raise_for_status()
             r=client.post('/api/auth/login',json={k:user[k] for k in ('username','password')});r.raise_for_status();user['token']=r.json()['access_token']
             if index:continue
             headers={'Authorization':'Bearer '+user['token']}
@@ -477,7 +486,7 @@ def seed(base,cfg,fixture):
     cfg['session_ids']=[]
     with httpx.Client(base_url=base,trust_env=False,timeout=5) as client:
         for user in cfg['users']:
-            response=client.post('/api/auth/register',json={k:user[k] for k in ('username','password')})
+            response=client.post('/api/auth/register',json=registration_payload(user))
             if response.status_code!=201:
                 raise RuntimeError('demo_requires_fresh_database')
             user['token']=client.post('/api/auth/login',json={k:user[k] for k in ('username','password')}).json()['access_token']

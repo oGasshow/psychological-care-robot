@@ -34,7 +34,7 @@ export default function ManagementHome(){
     return()=>{clearTimeout(initial);clearInterval(poll);request.current?.abort();};
   },[load]);
   function clear(){request.current?.abort();setBusy(true);setItems([]);setCursor(null);setUpdated(null);}
-  return <ManagementShell title="用户报告" subtitle="选择用户，查看其已生成的报告。">
+  return <ManagementShell title="用户报告" subtitle="选择用户，查看其已生成的报告。" isTest={isTest}>
     <form className="management-filters care-card care-no-print" onSubmit={event=>{event.preventDefault();clear();if(search.trim()===term)void load();else setTerm(search.trim());}}>
       <div><label htmlFor="management-search">查找用户</label><input id="management-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="输入账号名称" maxLength={50}/></div>
       <div><label htmlFor="management-scope">记录范围</label><select id="management-scope" value={String(isTest)} onChange={e=>{clear();setIsTest(e.target.value==='true');}}><option value="false">业务记录</option><option value="true">测试记录</option></select></div>

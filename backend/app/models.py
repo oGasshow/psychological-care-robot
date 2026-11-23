@@ -1,5 +1,5 @@
 """数据库模型定义"""
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, JSON, CheckConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -21,6 +21,26 @@ class User(Base):
 
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}')>"
+
+
+class UserReportProfile(Base):
+    """Optional report metadata; separate from credentials and older user rows."""
+    __tablename__ = 'user_report_profiles'
+    __table_args__ = (
+        CheckConstraint('age IS NULL OR (age >= 1 AND age <= 120)', name='ck_report_profile_age'),
+        CheckConstraint("gender IS NULL OR gender IN ('male','female','other','undisclosed')", name='ck_report_profile_gender'),
+        CheckConstraint('(emergency_contact_name IS NULL AND emergency_contact_phone IS NULL) OR '
+            '(emergency_contact_name IS NOT NULL AND emergency_contact_phone IS NOT NULL AND emergency_contact_authorized_at IS NOT NULL)',
+            name='ck_report_profile_authorized_contact'),
+    )
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+    full_name = Column(String(50), nullable=True)
+    gender = Column(String(16), nullable=True)
+    age = Column(Integer, nullable=True)
+    emergency_contact_name = Column(String(50), nullable=True)
+    emergency_contact_phone = Column(String(32), nullable=True)
+    emergency_contact_authorized_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
 
 class Conversation(Base):

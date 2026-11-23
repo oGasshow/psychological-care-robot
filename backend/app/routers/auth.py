@@ -1,9 +1,10 @@
 """认证相关路由"""
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from ..database import get_db
 from ..models import User
-from ..schemas import UserRegister, UserLogin, Token, UserResponse, Response
+from ..schemas import UserRegister, UserLogin, Token, UserResponse, Response,ProfileUpdate
 from ..auth import verify_password, get_password_hash, create_access_token, get_current_user
 from ..care_management import can_manage_reports
 
@@ -28,8 +29,17 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     )
     
     db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    try:
+        db.flush()
+        from ..user_profiles import save_registration_profile
+        save_registration_profile(db,new_user.id,user_data)
+        db.commit()
+        db.refresh(new_user)
+    except IntegrityError:
+        db.rollback()
+        if db.query(User.id).filter(User.username==user_data.username).first():
+            raise HTTPException(status_code=400,detail='用户名已被注册') from None
+        raise
     
     return Response(
         success=True,
@@ -76,5 +86,15 @@ async def login(user_data: UserLogin, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """获取当前登录用户信息"""
+    from ..user_profiles import report_profile,contact_ready
     return dict(id=current_user.id, username=current_user.username, created_at=current_user.created_at,
-                is_active=current_user.is_active, can_manage_reports=can_manage_reports(db, current_user.id))
+                is_active=current_user.is_active, can_manage_reports=can_manage_reports(db, current_user.id),
+                report_profile=report_profile(db,current_user.id),emergency_contact_complete=contact_ready(db,current_user.id))
+
+
+@router.put('/profile',response_model=Response)
+async def update_profile(body:ProfileUpdate,current_user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    if can_manage_reports(db,current_user.id):raise HTTPException(status_code=403,detail='管理员资料不通过此入口修改')
+    from ..user_profiles import replace_profile
+    replace_profile(db,current_user.id,body);db.commit()
+    return Response(success=True,message='个人资料已保存')

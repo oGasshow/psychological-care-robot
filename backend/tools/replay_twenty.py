@@ -156,7 +156,7 @@ def local_backend(scratch, output, lifecycle):
                     raise RuntimeError('local_backend_timeout')
                 password = secrets.token_urlsafe(24)
                 registered = client.post('/api/auth/register', json={
-                    'username': 'virtual_twenty_audit', 'password': password})
+                    'username': 'virtual_twenty_audit', 'password': password,'emergency_contact_name':'虚构回放联系人（非真实）','emergency_contact_phone':'00000000','emergency_contact_authorized':True})
                 registered.raise_for_status()
                 signed = client.post('/api/auth/login', json={
                     'username': 'virtual_twenty_audit', 'password': password})

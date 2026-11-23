@@ -56,7 +56,7 @@ def main():
                     else:
                         raise RuntimeError('Local server startup timed out')
                     password=secrets.token_urlsafe(24)
-                    register=client.post('/api/auth/register',json={'username':'virtual_replay','password':password})
+                    register=client.post('/api/auth/register',json={'username':'virtual_replay','password':password,'emergency_contact_name':'虚构回放联系人（非真实）','emergency_contact_phone':'00000000','emergency_contact_authorized':True})
                     assert register.status_code==201
                     login=client.post('/api/auth/login',json={'username':'virtual_replay','password':password})
                     assert login.status_code==200

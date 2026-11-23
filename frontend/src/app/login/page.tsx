@@ -3,6 +3,8 @@ import DeploymentModeNotice from '@/components/deployment-mode';
 
 import { useEffect, useState } from 'react';
 
+const emptyForm={username:'',password:'',confirmPassword:'',full_name:'',gender:'',age:'',emergency_contact_name:'',emergency_contact_phone:'',emergency_contact_authorized:false};
+
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [deploymentRole, setDeploymentRole] = useState('standalone');
@@ -11,11 +13,7 @@ export default function LoginPage() {
     fetch('/api/deployment', {cache:'no-store',signal:request.signal}).then(response=>response.json()).then(value=>setDeploymentRole(value.role)).catch(()=>{});
     return()=>request.abort();
   }, []);
-  const [formData, setFormData] = useState({
-    username: '',
-    password: '',
-    confirmPassword: '',
-  });
+  const [formData, setFormData] = useState(emptyForm);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -33,6 +31,12 @@ export default function LoginPage() {
       setError('两次输入的密码不一致');
       return;
     }
+    if(!isLogin){
+      if(!formData.emergency_contact_name.trim()||!formData.emergency_contact_phone.trim()){
+        setError('请同时填写紧急联系人姓名和电话');return;
+      }
+      if(!formData.emergency_contact_authorized){setError('填写紧急联系人前，请确认已获得对方同意');return;}
+    }
 
     setLoading(true);
 
@@ -48,6 +52,13 @@ export default function LoginPage() {
         body: JSON.stringify({
           username: formData.username,
           password: formData.password,
+          ...(!isLogin?{
+            full_name:formData.full_name.trim()||null,gender:formData.gender||null,
+            age:formData.age===''?null:Number(formData.age),
+            emergency_contact_name:formData.emergency_contact_name.trim()||null,
+            emergency_contact_phone:formData.emergency_contact_phone.trim()||null,
+            emergency_contact_authorized:formData.emergency_contact_authorized,
+          }:{}),
         }),
       });
 
@@ -73,7 +84,7 @@ export default function LoginPage() {
         // 注册成功：提示并切换到登录
         alert('注册成功！请登录');
         setIsLogin(true);
-        setFormData({ username: formData.username, password: '', confirmPassword: '' });
+        setFormData({...emptyForm,username:formData.username});
       }
     } catch (err: unknown) {
       setError(err instanceof Error && err.message ? err.message : '操作失败，请重试');
@@ -82,7 +93,7 @@ export default function LoginPage() {
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
@@ -113,7 +124,7 @@ export default function LoginPage() {
               onClick={() => {
                 setIsLogin(true);
                 setError('');
-                setFormData({ username: '', password: '', confirmPassword: '' });
+                setFormData(emptyForm);
               }}
               className={`flex-1 py-2 rounded-lg font-semibold transition-all ${
                 isLogin
@@ -127,7 +138,7 @@ export default function LoginPage() {
               onClick={() => {
                 setIsLogin(false);
                 setError('');
-                setFormData({ username: '', password: '', confirmPassword: '' });
+                setFormData(emptyForm);
               }}
               className={`flex-1 py-2 rounded-lg font-semibold transition-all ${
                 !isLogin
@@ -190,6 +201,20 @@ export default function LoginPage() {
                 />
               </div>
             )}
+
+            {!isLogin&&<fieldset className="space-y-4 border-t border-gray-200 pt-4" disabled={loading}>
+              <legend className="text-sm font-semibold text-gray-700 px-1">报告基础资料</legend>
+              <p className="text-xs text-gray-500">姓名、性别和年龄可选填；紧急联系人为必填项，用于需要时由关怀人员人工联系。</p>
+              <div><label htmlFor="register-full-name" className="block text-sm font-medium text-gray-700 mb-2">姓名／称呼</label>
+                <input id="register-full-name" name="full_name" value={formData.full_name} onChange={handleInputChange} maxLength={50} autoComplete="name" placeholder="报告中显示的姓名或称呼" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"/></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><label htmlFor="register-gender" className="block text-sm font-medium text-gray-700 mb-2">性别</label><select id="register-gender" name="gender" value={formData.gender} onChange={handleInputChange} className="w-full px-3 py-3 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"><option value="">未填写</option><option value="male">男</option><option value="female">女</option><option value="other">其他</option><option value="undisclosed">不便透露</option></select></div>
+                <div><label htmlFor="register-age" className="block text-sm font-medium text-gray-700 mb-2">年龄</label><input id="register-age" type="number" name="age" value={formData.age} onChange={handleInputChange} min={1} max={120} step={1} inputMode="numeric" placeholder="周岁" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"/></div>
+              </div>
+              <div><label htmlFor="register-contact-name" className="block text-sm font-medium text-gray-700 mb-2">紧急联系人姓名（必填）</label><input id="register-contact-name" name="emergency_contact_name" value={formData.emergency_contact_name} onChange={handleInputChange} maxLength={50} required autoComplete="off" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"/></div>
+              <div><label htmlFor="register-contact-phone" className="block text-sm font-medium text-gray-700 mb-2">紧急联系人电话（必填）</label><input id="register-contact-phone" type="tel" name="emergency_contact_phone" value={formData.emergency_contact_phone} onChange={handleInputChange} maxLength={32} required autoComplete="off" placeholder="手机或固定电话" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"/></div>
+              <label className="flex items-start gap-2 text-xs text-gray-600"><input type="checkbox" name="emergency_contact_authorized" required checked={formData.emergency_contact_authorized} onChange={e=>setFormData(old=>({...old,emergency_contact_authorized:e.target.checked}))} className="mt-0.5"/><span>已获得联系人同意，将其姓名和电话用于报告中的紧急联系信息。</span></label>
+            </fieldset>}
 
             {/* 错误提示 */}
             {error && (

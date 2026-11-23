@@ -259,3 +259,37 @@
 @media print{.report-template .scale-unused>div{display:none!important}.report-template .scale-unused{break-inside:avoid}}
 .report-self-assessment li { margin-bottom:8px; break-inside:avoid; }
 .report-resource-url { display:block; font-size:.9em; overflow-wrap:anywhere; }
+.care-report.template-report{background:#fff;color:#344d6a;border:1px solid #c8ddeb;border-radius:0;padding:28px;font-size:14px;line-height:1.5;box-shadow:none}
+.pdf-report-heading{text-align:center;margin-bottom:14px}.pdf-report-heading h1{margin:0 0 6px;font-size:25px;letter-spacing:2px;color:#164677}.pdf-report-heading p{margin:0;font-size:12px;color:#377cab}
+.template-report .pdf-panel{padding:0;margin:10px 0;border:1px solid #bedced;background:#f7fbfe;min-width:0}
+.template-report h2{font-size:15px;line-height:1.35;margin:0;padding:9px 12px;background:#086db5;color:#fff;font-weight:700;border:0}
+.pdf-flow{padding:12px;text-align:center;color:#096abc;font-weight:600}.pdf-pair{display:grid;grid-template-columns:48.5% 51.5%;margin:10px 0}
+.template-report .pdf-pair>.pdf-panel{margin:0}.pdf-pair>.pdf-panel+ .pdf-panel{border-left:0}
+.pdf-details{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:7px 12px;margin:12px;font-size:13px}.pdf-details dt{font-weight:600}.pdf-details dd{margin:0;overflow-wrap:anywhere}.pdf-transcription{white-space:nowrap}
+.pdf-number{display:flex;align-items:baseline;gap:18px;margin:18px 14px}.pdf-number>span{font-weight:600;font-size:19px;min-width:5em}.pdf-number strong{font-size:28px;color:#4c6b8c}.pdf-number small{font-size:14px;font-weight:400}
+.template-report .pdf-small{font-size:11px;color:#667f93}.pdf-score>.pdf-small{margin:14px}.pdf-small p{margin:7px 0}.pdf-inset{margin:12px}
+.pdf-scale-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}.pdf-scale-table th,.pdf-scale-table td{padding:9px 8px;border:1px solid #bedced;text-align:left;overflow-wrap:anywhere}.pdf-scale-table th{color:#164677;background:#e6f2f9}.pdf-scale-table th:first-child{width:30%}
+.template-report .pdf-strip{padding:7px 10px;margin:0;background:#deeffa;color:#6c879d;font-size:11px;line-height:1.5}.pdf-empty{margin:12px}.pdf-chart-label{font-size:11px;color:#5e7b91;margin:7px 14px 0}.pdf-emotion-chart{width:100%;height:125px;display:block;padding:0 9px;overflow:visible;font-size:11px;color:#536f86}.pdf-emotion-chart text{fill:currentColor;font-family:inherit}
+.pdf-signals{list-style:none;padding:0 12px;margin:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;font-size:12px}.pdf-signals li:last-child{grid-column:1/-1}.pdf-signals .confirmed{color:#a65b16;font-weight:600}
+.pdf-summary{padding:4px 12px;font-size:12px}.pdf-summary p{margin:9px 0;overflow-wrap:anywhere}.pdf-overview{color:#3a80ad}.pdf-advice{margin:12px;padding-left:28px;font-size:12px}.pdf-advice li{margin:8px 0}.pdf-support{margin:10px 12px;color:#a03232;font-weight:600;font-size:12px}
+.pdf-qr-placeholder{border:1.5px dashed #a1bdcf;background:#fff;width:140px;min-height:72px;margin:12px auto;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#5f7e94;font-size:12px}.pdf-report-footer{margin-top:12px;border-top:1px solid #c5dfef;padding-top:7px;font-size:10px;color:#71879a}.pdf-report-footer p{margin:5px 0}
+@media(max-width:640px){.care-report.template-report{padding:14px}.pdf-report-heading h1{font-size:21px}.pdf-pair{grid-template-columns:1fr}.pdf-pair>.pdf-panel+ .pdf-panel{border-left:1px solid #bedced;border-top:0}.pdf-number{gap:10px}.pdf-number strong{font-size:25px}.pdf-scale-table{font-size:11px}.pdf-scale-table th,.pdf-scale-table td{padding:6px 4px}.pdf-signals{margin:10px 0}}
+@page care-user-report{size:A4;margin:9mm 11mm 12mm;@bottom-center{content:"保密提示：仅供本人及授权关怀人员查阅　" counter(page) " / " counter(pages);font-family:"Microsoft YaHei",sans-serif;font-size:8pt;color:#71879a}}
+@media print{
+  .care-report.template-report[data-data-nature]{page:care-user-report!important;border:0;padding:0;font-size:9pt;line-height:1.35;box-shadow:none;color:#344d6a!important}
+  .template-report .pdf-panel,.template-report .pdf-pair{margin:5pt 0}.template-report .pdf-pair>.pdf-panel{margin:0}.template-report .pdf-pair{grid-template-columns:48.5% 51.5%;break-inside:avoid}
+  .template-report h2{font-size:10pt;padding:6pt 8pt;background:#086db5!important;color:#fff!important;break-after:avoid}
+  .pdf-report-heading{margin-bottom:8pt}.pdf-report-heading h1{font-size:19pt;margin:0 0 4pt}.pdf-report-heading p{font-size:8pt}.pdf-flow{padding:7pt;font-size:8pt}
+  .pdf-details{margin:8pt;gap:5pt 7pt;font-size:8pt}.pdf-number{margin:12pt 9pt;gap:10pt}.pdf-number>span{font-size:13pt}.pdf-number strong{font-size:19pt}.pdf-number small{font-size:9pt}.template-report .pdf-small{font-size:7.5pt}.pdf-score>.pdf-small{margin:8pt}.pdf-small p{margin:4pt 0}
+  .pdf-scale-table{font-size:8pt}.pdf-scale-table th,.pdf-scale-table td{padding:6pt}.template-report .pdf-strip{padding:5pt 7pt;font-size:7.5pt}.pdf-emotion-chart{height:65pt;font-size:11px}.pdf-chart-label{font-size:7.5pt;margin:4pt 9pt 0}
+  .pdf-signals{font-size:8pt;gap:7pt 9pt;margin:9pt 0;padding:0 9pt}.pdf-summary{font-size:8pt;padding:2pt 8pt}.pdf-summary p{margin:5pt 0}.pdf-advice{font-size:8pt;margin:8pt;padding-left:18pt}.pdf-advice li{margin:5pt 0}.pdf-support{font-size:8pt;margin:7pt 8pt}.pdf-qr-placeholder{width:110px;min-height:50px;font-size:8pt;margin:8pt auto}.pdf-inset{margin:8pt}.pdf-report-footer{font-size:7pt;margin-top:7pt;padding-top:4pt}.pdf-report-footer p{margin:3pt 0}.pdf-scale-table tr,.pdf-panel:has(>.pdf-emotion-chart){break-inside:avoid}
+  .template-report .pdf-pair>.pdf-panel+ .pdf-panel{border-left:0;border-top:1px solid #bedced}.care-main:has(>.template-report)>:not(.template-report){display:none!important}
+}
+@media print{
+  .care-report.template-report h2{padding:5pt 8pt}
+  .care-report.template-report .pdf-scale-table,.care-report.template-report .pdf-scale-table th,.care-report.template-report .pdf-scale-table td{font-size:8pt}
+  .care-report.template-report .pdf-strip{padding:3pt 7pt}
+  .care-report.template-report .pdf-details{gap:4pt 7pt}
+  .care-report.template-report .pdf-emotion-chart{height:60pt}
+  .care-report.template-report .pdf-report-footer p:last-child{display:none}
+}

@@ -64,7 +64,7 @@ def server(tmp_path,trace):
 
 def login(server):
     with httpx.Client(base_url=server.base,trust_env=False,timeout=5) as client:
-        r=client.post('/api/auth/register',json={'username':'virtual_process_user','password':'fictional-only'})
+        r=client.post('/api/auth/register',json={'username':'virtual_process_user','password':'fictional-only','emergency_contact_name':'虚构联系人','emergency_contact_phone':'010-00000000','emergency_contact_authorized':True})
         assert r.status_code==201
         token=client.post('/api/auth/login',json={'username':'virtual_process_user','password':'fictional-only'}).json()['access_token']
         uid=client.get('/api/auth/me',headers={'Authorization':'Bearer '+token}).json()['id']

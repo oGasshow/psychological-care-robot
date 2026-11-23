@@ -1,5 +1,7 @@
 # 文档导航
 
+使用入口：[最新使用手册](USER_MANUAL.md)，包含普通用户、管理员待联系提醒、报告导出、维护和GitHub接手步骤。
+
 新增：[公开开发资料包](operations/public-development-package.md)，包含虚构示例数据库、配置模板和权重获取清单。
 
 模型文件：[模型权重交接附件](operations/model-release.md)，提供当前安装的 SEGA 与辅助模型及校验信息。

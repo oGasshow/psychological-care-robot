@@ -80,6 +80,8 @@ def check_query(request:Request):
     allowed={'limit','cursor'} if request.url.path.endswith('/analyses') else {'from','to'} if request.url.path.endswith('/trends') else set()
     if request.url.path.endswith('/reports/window'):
         allowed={'time_from','time_to'}
+    if '/reports/template/' in request.url.path:
+        allowed={'period'}
     if any(key not in allowed for key in request.query_params):
         raise CareError(422,'validation_error')
     if any(len(request.query_params.getlist(key))>1 for key in allowed):
@@ -259,6 +261,13 @@ def preview_session_report(sid: ResourceID, uid=Depends(owner)):
     with transaction() as db:
         value, _ = read_report(db, uid, sid)
     return value
+
+
+@router.get('/reports/template/{sid}')
+def template_report(sid:ResourceID,period:Literal['session','three_days','week']='session',uid=Depends(owner)):
+    from .template_report import read_template_report
+    with transaction() as db:
+        return read_template_report(db,uid,sid,period)
 
 
 @router.post('/reports/session/{sid}/narrative')

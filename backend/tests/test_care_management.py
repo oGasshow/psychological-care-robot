@@ -50,7 +50,7 @@ def test_only_explicit_active_managers_can_access_all_users(actors, manager):
 
 def test_public_registration_cannot_grant_management(actors):
     a, _ = actors
-    r = a.client.post('/api/auth/register',json={'username':'new_public_user','password':'fictional-only','can_manage_reports':True,'role':'admin'})
+    r = a.client.post('/api/auth/register',json={'username':'new_public_user','password':'fictional-only','can_manage_reports':True,'role':'admin','emergency_contact_name':'虚构联系人','emergency_contact_phone':'010-00000000','emergency_contact_authorized':True})
     assert r.status_code == 201
     token = a.client.post('/api/auth/login',json={'username':'new_public_user','password':'fictional-only'}).json()['access_token']
     assert a.client.get(P+'/users',headers={'Authorization':'Bearer '+token}).status_code == 403

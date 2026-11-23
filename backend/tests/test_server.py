@@ -25,7 +25,7 @@ def error(response, status, code):
 
 def test_A01_roundtrip(actors, trace):
     a, _ = actors
-    registered = a.client.post('/api/auth/register', json={'username': 'virtual_new', 'password': 'fictional-new'})
+    registered = a.client.post('/api/auth/register', json={'username': 'virtual_new', 'password': 'fictional-new','emergency_contact_name':'虚构联系人','emergency_contact_phone':'010-00000000','emergency_contact_authorized':True})
     assert registered.status_code == 201
     created = a.create()
     assert created.status_code == 201
