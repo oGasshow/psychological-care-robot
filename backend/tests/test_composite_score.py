@@ -31,9 +31,9 @@ def test_full_sum_and_boundaries(total,band):
 
 @pytest.mark.parametrize('count,confidence,level',[(1,6.25,'low'),(7,43.75,'low'),(8,50,'medium'),
     (12,75,'medium'),(13,81.25,'high'),(16,100,'high')])
-def test_partial_prorates_all_sixteen_items_and_coverage(count,confidence,level):
+def test_partial_does_not_prorate_and_reports_coverage(count,confidence,level):
     value=calculate(dict.fromkeys(KEYS[:count],1))
-    assert value['score']==16 and value['confidence']==confidence and value['confidence_level']==level
+    assert value['score']==(16 if count==16 else None) and value['confidence']==confidence and value['confidence_level']==level
     assert value['possible_total_min']==count and value['possible_total_max']==count+3*(16-count)
 
 
@@ -53,7 +53,7 @@ def test_report_scope_does_not_inherit_other_call_answers(actors,manager):
     route=f'/api/robot-insights/reports/template/{second}'
     public=a.request('GET',route).json()
     combined=public['combined_score']
-    assert combined['answered']==7 and combined['score']==16 and combined['confidence']==43.75
+    assert combined['answered']==7 and combined['score'] is None and combined['confidence']==43.75
     with SessionLocal() as db:scoped={'combined_score':for_sessions(db,a.uid,[first,second])}
     assert scoped['combined_score']['answered']==16 and scoped['combined_score']['score']==15
     assert scoped['combined_score']['score_kind']=='complete'
@@ -71,7 +71,7 @@ def test_different_task_or_recall_window_never_forms_complete_score(actors):
     second=save(a,newer,'GAD-7',[2]*7)
     def selected():
         with SessionLocal() as db:return for_sessions(db,a.uid,[first,second])
-    assert selected()['answered']==7 and selected()['score']==32, (selected(),list(newer.answers),newer.stage)
+    assert selected()['answered']==7 and selected()['score'] is None, (selected(),list(newer.answers),newer.stage)
     values=selected()['instruments']
     assert {v['scale_id'] for v in values}=={'PHQ-9','GAD-7'}
     assert {v['scale_id'] for v in values if v['included_in_combined']}=={'GAD-7'}
@@ -96,3 +96,10 @@ def test_correction_and_deletion_remove_stale_answers_and_change_source_hash(act
     assert after['source_snapshot_hash']!=before['source_snapshot_hash']
     a.request('DELETE',f'/api/robot-records/sessions/{sid}')
     assert a.request('GET',path).status_code==410
+
+
+def test_three_answers_never_become_a_37_point_estimate():
+    value=calculate(dict(zip(KEYS,[3,3,1])))
+    assert value['answered']==3 and value['observed_score']==7
+    assert value['score'] is None and value['reference_band'] is None
+    assert value['score_kind']=='incomplete'

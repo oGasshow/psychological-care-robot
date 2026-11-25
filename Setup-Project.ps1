@@ -64,7 +64,7 @@ try {
         } finally { Pop-Location }
     }
     if (-not (Test-Path -LiteralPath $pythonTool)) { throw 'Project venv is missing. Run setup without -CheckOnly first.' }
-    $environmentJson = & $pythonTool -c 'import sys,sqlite3,json; print(json.dumps({"executable":sys.executable,"version":sys.version,"sqlite_version":sqlite3.sqlite_version}))'
+    $environmentJson = & $pythonTool -c 'import sys,sqlite3,json; print(json.dumps(dict(executable=sys.executable,version=sys.version,sqlite_version=sqlite3.sqlite_version)))'
     if ($LASTEXITCODE -ne 0) { throw 'Project interpreter check failed.' }
     $record.python = $environmentJson | ConvertFrom-Json
     & $uvTool pip check --python $pythonTool

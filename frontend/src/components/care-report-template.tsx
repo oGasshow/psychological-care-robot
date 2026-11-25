@@ -8,7 +8,7 @@ export interface TemplateReport {
   time_from:string;time_to:string;is_test:boolean;conversation_count:number;user_turns:number;elapsed_seconds:number;
   user_id?:number;personal_profile?:{full_name:string|null;gender_label:string|null;age:number|null;emergency_contact_name:string|null;emergency_contact_phone:string|null};
   transcription_status:'completed'|'failed'|'needs_review';
-  combined_score:{score:number|null;confidence:number;full_max:number;score_kind:string;answered:number;required:number};
+  combined_score:{score:number|null;confidence:number;full_max:number;score_kind:string;answered:number;required:number;observed_score:number};
   instruments:{scale_id:string;name:string;kind:string;answered:number;required:number;coverage:number;observed_score:number;answered_max:number;status:string}[];
   emotion_trend:{mode:string;x_label:string;points:ChartPoint[];valid_count:number;excluded_engine_groups:number;status:string};
   signals:{key:string;label:string;confirmed:boolean}[];
@@ -45,9 +45,9 @@ export function Report({value,audience='self'}:{value:TemplateReport;audience?:'
       <dt>姓名／编号</dt><dd>{profile?.full_name||value.username}{value.user_id?` / ${value.user_id}`:''}</dd><dt>性别／年龄</dt><dd>{profile?.gender_label||'未提供'}／{profile?.age!=null?profile.age+' 岁':'未提供'}</dd><dt>报告范围</dt><dd>{value.range_label}</dd>
       <dt>起止时间</dt><dd>{date(value.time_from)}<br/>至 {date(value.time_to)}</dd><dt>纳入对话</dt><dd>{value.conversation_count} 段 · 用户发言 {value.user_turns} 条</dd>
       <dt>经过时长</dt><dd>{elapsed}（含停顿）</dd><dt>语音识别</dt><dd>{trans.map(([key,label])=><span className="pdf-transcription" key={key}>{value.transcription_status===key?'☑':'□'}{label} </span>)}</dd><dt>紧急联系人</dt><dd>{profile?.emergency_contact_name&&profile.emergency_contact_phone?<>{profile.emergency_contact_name}<br/>{profile.emergency_contact_phone}</>:'未提供（可选）'}</dd></dl></section>
-      <section className="pdf-panel pdf-score"><h2>03 量表评分</h2><div className="pdf-number"><span>量表分数</span><strong data-testid="combined-score-number">{score.score??'—'}<small> / 48 分</small></strong></div>
+      <section className="pdf-panel pdf-score"><h2>03 量表评分</h2><div className="pdf-number"><span>量表分数{score.score==null&&score.answered>0&&<small>（已答小计）</small>}</span><strong data-testid="combined-score-number">{score.score??(score.answered>0?score.observed_score:'—')}<small>{score.score!=null?` / ${score.full_max} 分`:score.answered>0?' 分 · 未完成':' 暂未计分'}</small></strong></div>
         <div className="pdf-number"><span>置信度</span><strong data-testid="combined-confidence">{score.confidence.toLocaleString('zh-CN',{maximumFractionDigits:2})}%</strong></div>
-        <div className="pdf-small"><p>分数段：正常参考＜10；轻度 10–＜20；中度 20–＜30；重度 30–48。</p><p>置信度：高≥80%；中 50%–＜80%；低＜50%。按完成率分档（项目规则），非医学准确率。</p><p>未完成时为估算分，仅供参考；无有效答案时不计分。</p></div></section></div>
+        <div className="pdf-small"><p>已答 {score.answered}/{score.required} 题{score.answered>0?`，已答题小计 ${score.observed_score} 分`:'，暂未计分'}。</p><p>置信度按已答题比例展示（项目规则），仅表示信息覆盖程度，不是统计置信度或医学准确率。</p><p>未答完整不推算总分、不判断轻重程度；已答题小计不代表整份量表结果。</p></div></section></div>
     <section className="pdf-panel"><h2>04 量表问答概况</h2>{value.instruments.length?<table className="pdf-scale-table"><thead><tr><th>量表名称</th><th>已完成／总题数</th><th>采集覆盖率</th><th>已答条目小计</th><th>完成状态</th></tr></thead><tbody>{value.instruments.map(s=><tr key={s.scale_id}><td>{s.name}</td><td>{s.answered} / {s.required} 项</td><td>{s.coverage}%</td><td>{s.observed_score} / {s.answered_max} 分</td><td>{s.status==='complete'?'已完成':'进行中'}</td></tr>)}</tbody></table>:<p className="pdf-empty">本次未使用量表或尚无可确认作答。</p>}
       <p className="pdf-strip">仅列范围内实际使用的量表，每种显示最近任务进度；第 3 部分仅对最新同一任务计分，独立任务不拼接。{value.instruments.some(s=>s.kind==='project_indicator')?'自定义指标不计入综合分。':''}</p></section>
     <section className="pdf-panel"><h2>05 情绪变化趋势</h2><p className="pdf-chart-label">情绪参考分</p><EmotionChart value={value.emotion_trend}/><p className="pdf-strip">多日报告每段会话一个点，本次按发言顺序。积极／中性／消极映射为 100／50／0，会话内取平均；缺失断线，单点不连线，仅作表达参考。{value.emotion_trend.excluded_engine_groups>0?'不同分析口径未混合绘制。':''}</p></section>

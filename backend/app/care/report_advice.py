@@ -16,5 +16,5 @@ def advice(combined,signals,chart,sections,support):
     if sections['daily_function']['status']=='recorded':suggestions.append('可以结合用户提到的工作、学习或自我照顾情况，进一步核实是否需要日常协助。')
     if combined['score_kind']=='complete' and combined['score']>=20:
         suggestions.insert(0,'完整问答提示相关困扰值得进一步关注；若持续或影响生活，可考虑由专业人员进一步评估。')
-    if combined['score_kind']=='estimated':suggestions.append('当前作答未完整，可以在合适时继续问答；估算分不作诊断。')
+    if combined['score_kind']=='incomplete':suggestions.append('当前作答尚未完整，仅展示已答题小计；可以在愿意时继续，不据此判断症状程度。')
     return suggestions[:3] or ['可以按自己的节奏回顾最近在意的事，并与信任的人交流。']

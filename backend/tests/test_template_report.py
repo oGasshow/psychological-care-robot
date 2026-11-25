@@ -19,6 +19,7 @@ def configured(monkeypatch):
     monkeypatch.setenv('ROBOT_CARE_COLLECTION_DEMO','false')
     monkeypatch.setenv('ROBOT_CARE_ANALYSIS_ENGINE','rules')
     monkeypatch.setattr('app.care.template_report.now',lambda:CUT)
+    monkeypatch.setattr('test_scale_reports.now',lambda:'2026-11-23T01:00:00.000000Z')
 
 def call(a,day='2026-11-23',texts=None,is_test=True,closed=True):
     start=f'{day}T00:01:00+08:00'

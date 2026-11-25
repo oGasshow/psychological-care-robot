@@ -135,10 +135,13 @@ async def assess(data):
         prompt += ('\n普通版核心采集覆盖上述目标规则：只选择 PHQ-9（低落或兴趣减退）或 GAD-7（紧张或担忧），'
                    '按线索选择；不选自定义指标或其他量表。仍排除寒暄、假设、转述、短暂情绪、否认及功能提问。')
         if data.get('early_core') and not data.get('historical_danger'):
-            prompt += ('\n本次为当前通话的早期判断：第一条真实自述如明确表达低落、兴趣减退或难以放下的担忧，'
+            prompt += ('\n本次为当前通话的早期判断：第一条真实自述如明确表达低落、不开心、难过、伤心、兴趣减退或难以放下的担忧，'
                        '一条逐字依据即可 follow_up，无需先证明持续时间或生活影响。'
+                       '这是主动邀请用户梳理近况，不是诊断。当前明确的消极自述不要只因尚未持续两周而降为monitor；'
+                       '仍排除否认、第三方经历、引用、假设和纯功能询问，不以负面词汇本身触发。'
                        '若用户愿意继续、无需优先安抚且能自然过渡，可立即设 transition_ready=true；不要求固定口令。'
                        '用户仍在倾诉、明确拒绝、有危险表达或明显痛苦则 false。')
+    prompt+='\n单纯开心、满足、放松或积极分享不构成采集线索，不启动积极状态量表；保留自然分享。普通消极情绪与明确危险表达分开处理，危险时先关怀与安全支持，不用量表判断是否安全，也不凭一句好点了设置transition_ready=true。'
     aliases={t['message_id']:f'T{i+1}' for i,t in enumerate(data['turns'])}
     originals={v:k for k,v in aliases.items()}
     payload={**data,'turns':[{**t,'message_id':aliases[t['message_id']]} for t in data['turns']],

@@ -141,6 +141,7 @@ export interface VoiceConfig { enabled: boolean; conditional_collection_enabled:
 export interface DeploymentMode { mode:'normal'|'demo'|'unavailable';name:string;demo_mode:boolean;description?:string }
 export interface CollectionSaveReceipt {type:'screening.saved';recording_session_id:number;version:number;saved_at:string;answered:number;required:number;pending_answers:number}
 export interface ScreeningStatus {
+  scores?: {scale:string;display_name:string;answered:number;required:number;partial_score:number|null;total:number|null;max_score:number;items:{item:number;topic:string;points:number}[]}[];
   collection_progress?:{answered:number;required:number};
   type: 'screening.status'; stage: string; version: number; triggered: boolean; detector_status: string;
   review_status: string; error_code?: string;

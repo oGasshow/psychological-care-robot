@@ -73,7 +73,7 @@ def test_end_request_requires_a_standalone_intent(text,should_end):
 
 
 @contextmanager
-def cloud(user_texts=None, *, audio_only=False, ignore_silence=False, frames_per_turn=1, synthesize_speech=False):
+def cloud(user_texts=None, *, assistant_texts=None, audio_only=False, ignore_silence=False, frames_per_turn=1, synthesize_speech=False):
     received=[]
     def handler(ws):
         input_count=0
@@ -102,7 +102,7 @@ def cloud(user_texts=None, *, audio_only=False, ignore_silence=False, frames_per
                     spoken=user_texts[min(turn-1,len(user_texts)-1)] if user_texts else '虚构：今天开心'
                     events=[dict(type='conversation.item.input_audio_transcription.started',item_id=q),
                             dict(type='conversation.item.input_audio_transcription.completed',item_id=q,text=spoken),
-                            dict(type='response.output_text.done',question_id=q,response_id=r,text='我在听，可以慢慢说。'),
+                            dict(type='response.output_text.done',question_id=q,response_id=r,text=assistant_texts[min(turn-1,len(assistant_texts)-1)] if assistant_texts else '我在听，可以慢慢说。'),
                             dict(type='response.output_audio.delta',question_id=q,response_id=r,delta=base64.b64encode(b'\0'*640).decode()),
                             dict(type='response.output_audio.done',question_id=q,response_id=r)]
                     if audio_only:
@@ -169,7 +169,7 @@ def test_normal_voice_supplies_first_question_in_five_rounds(actors,monkeypatch,
     opening='项目上有些事情不顺利。' if prior_task else '我最近觉得心情很低落。'
     texts=[opening,history_response or '这个问题持续了一周。',
            '这周还有一些事情要处理。','我可以慢慢梳理一下。','有五天左右。']
-    with cloud(texts,synthesize_speech=True) as (url,events):
+    with cloud(texts,synthesize_speech=True,assistant_texts=['愿意说说发生了什么吗？','我在听，可以慢慢说。']) as (url,events):
         setup_bridge(monkeypatch,url)
         monkeypatch.setenv('ROBOT_CARE_GUIDED_SCREENING_ENABLED','true')
         monkeypatch.setenv('ROBOT_CARE_PURCHASE_NOTICE_VERSION','five-round-test')

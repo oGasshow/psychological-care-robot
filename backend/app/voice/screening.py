@@ -101,10 +101,10 @@ SUPPORTIVE_QUESTION_STYLE = (
     '安全相关问题保持清楚直接，不用模糊的积极措辞替代伤害自己或死亡念头的询问。'
 )
 CORE_CONCERN = re.compile(
-    r'^(?:最近|这阵子|这几天|最近两周|这两周)?[，, ]*我(?:最近|这阵子|这几天|最近两周|这两周)?'
+    r'^(?:最近|这阵子|这几天|最近两周|这两周|今天|现在)?[，, ]*我(?:最近|这阵子|这几天|最近两周|这两周|今天|现在)?'
     r'(?:一直|经常|反复|这段时间|很|总是|总|挺|常常|老是|有点|特别|真的|感到|感觉|觉得|心情|情绪|变得|都|几乎每天|很容易|实在|好像)*'
     r'(?:(?P<interest>提不起(?:什么|任何|一点|什么样的)?兴趣|对[^，。！？；]{1,18}(?:提不起兴趣|没了兴趣|没什么兴趣))'
-    r'|(?P<low_mood>很?低落|很?沮丧|没什么盼头|没有盼头)'
+    r'|(?P<low_mood>很?低落|很?沮丧|没什么盼头|没有盼头|不开心|不快乐|不高兴|难过|伤心|悲伤|情绪不好|心情不好)'
     r'|(?P<worry>担心得停不下来|担心[^，。！？；]{0,12}(?:停不下来|无法控制|控制不住)|控制不住地担心|怎么都停不下(?:担心|担忧))'
     r'|(?P<anxiety>紧张|焦虑))')
 CORE_CONCERN_ITEMS = {
@@ -113,7 +113,7 @@ CORE_CONCERN_ITEMS = {
 }
 SELF_REPORT_EXCLUSION = re.compile(
     r'如果|假[如设]|假装|例如|举例|比方说|开玩笑|台词|测试一下|模拟|我朋友|我同学|我家人|不是|并不|不觉得|'
-    r'不再|好多了|已经.{0,6}(?:好了|缓解|过去)|刚才|今天才|只是今天|过去曾|明年|昨天才')
+    r'不再|不难过|不伤心|不悲伤|不低落|不沮丧|好多了|已经.{0,6}(?:好了|缓解|过去)|刚才|今天才|只是今天|过去曾|明年|昨天才')
 CORE_WINDOW = r'(?:最近|过去|这|近)(?:两周|两个星期|十四天|14天)'
 
 
@@ -129,6 +129,10 @@ def core_concern_item(text):
 
 
 def core_day_count(text):
+    # Colloquial qualifiers do not change an explicitly supplied day count.
+    text = re.sub(r'^(?:偶尔|有时候|有时)', '', text)
+    if re.fullmatch(r'(?:有)?几天(?:吧|左右)?', text):
+        return 1
     number = r'十[一二三四]?|[一二两三四五六七八九零〇]|0?[0-9]|1[0-4]'
     chinese_digit = '一二两三四五六七八九'
     match = re.fullmatch(
@@ -200,12 +204,32 @@ def explicit_frequency(text, options):
     return next(iter(found)) if len(found)==1 else None
 
 
+def colloquial_core_frequency(text):
+    """Accept complete conversational frequency replies, never degree alone."""
+    text = re.sub(r'[。！!，,？?、\s]', '', text)
+    prefix = r'(?:嗯|嗯嗯|对|是的)?(?:最近两周|这两周)?(?:我)?(?:就是|大概|大约)?(?:有一点点|有一点|有点|一点点)?(?:只是|就是)?'
+    suffix = r'(?:会有|会这样|有这种情况|这样|会|有|都这样|都有|都会)?(?:一点点|一点)?(?:吧|啊|呀|呢|的)?'
+    patterns = {
+        0: r'一次也没(?:有)?|一次都没(?:有)?|一天也没(?:有)?|一天都没(?:有)?|从来都没有|一点儿也没有|一点儿都没有',
+        1: r'偶尔|偶尔才|偶尔有几天|偶尔几天|很少几天|只有几天|就几天|有那么几天',
+        2: r'超过一半(?:的)?(?:日子|天数|时间)?|大半(?:的)?(?:日子|天数|时间)|一多半(?:的)?(?:日子|天数|时间)?',
+        3: r'基本上每天|基本上天天|基本天天|差不多每天|差不多天天|几乎天天|几乎每天|每天|天天',
+    }
+    for points, pattern in patterns.items():
+        if re.fullmatch(prefix + '(?:' + pattern + ')' + suffix, text):
+            return points
+    return None
+
+
 def frequency_answer(text,options,question,topic_question=None):
     if options == OPTIONS:
         normalized = re.sub(r'[。！!，,？?\s]', '', text)
         if (question_item(topic_question or question,'PHQ-9')==9
                 and re.fullmatch(r'(?:回顾)?(?:最近两周|这两周)?我完全没有伤害自己的念头也没有觉得死了更好',normalized)):
             return 0
+        colloquial = colloquial_core_frequency(text)
+        if colloquial is not None:
+            return colloquial
         days = core_day_count(normalized)
         if days is not None:
             return days
@@ -323,6 +347,8 @@ class Screening:
         self.question_key = None
         self.question_context = None
         self.user_invited_questions = False
+        self.context_invitation_needed = False
+        self.context_invitation_turn = None
         self.question_followup = None
         self.window_context = None
         self.preferred_item = None
@@ -370,6 +396,8 @@ class Screening:
         if not self.normal_live or self.end_after_response or HOLD_CORE_FOLLOWUP.search(self.latest_user_text):
             return None
         if self.stage not in ('checking_in','waiting_context','collecting'):
+            return None
+        if self.context_invitation_needed and not self.needs_current_safety_check and self.stage in ('collecting','waiting_context'):
             return None
         if self.needs_current_safety_check:
             return SAFETY_CHECK_QUESTION if not self.safety_check_asked else None
@@ -469,6 +497,7 @@ class Screening:
             evidence=result['evidence']
             ids=[entry['message_id'] for entry in evidence]
             if not self.triggered:
+                self.context_invitation_needed = True
                 self.concern(ids,result['detector_version'],result['target_scales'])
             else:
                 self.signals=list(dict.fromkeys([*self.signals,*ids]))
@@ -642,6 +671,7 @@ class Screening:
             current = self.current()
             scale, index = current[:2] if current else ('PHQ-9', 2)
         if not self.triggered:
+            self.context_invitation_needed = self.normal_live and not requested and not self_report
             self.concern([entry.message_id], 'current-core-followup-v1', [scale])
         elif scale not in self.target_scales:
             self.target_scales.append(scale)
@@ -702,6 +732,8 @@ class Screening:
 
     def observe(self, entry):
         if self.enabled and entry.role == 'assistant' and entry.final:
+            if self.context_invitation_needed and re.search(r'发生了什么|发生什么|遇到什么|遇到了什么|让你.{0,8}(难过|伤心|低落|担心)|愿意.{0,8}(说说|分享)|想.{0,6}说说',entry.text):
+                self.context_invitation_turn = entry.message_id
             if (self.normal_live and self.needs_current_safety_check
                     and entry.text.replace(' ','') == SAFETY_CHECK_QUESTION):
                 self.safety_question_turn=entry.turn_id
@@ -793,6 +825,11 @@ class Screening:
         self.seen.add(entry.message_id)
         text = entry.text.strip()
         self.latest_user_text=text
+        if (self.context_invitation_needed and self.context_invitation_turn is not None
+                and entry.message_id != self.context_invitation_turn
+                and not HOLD_CORE_FOLLOWUP.search(text)):
+            self.context_invitation_needed=False
+            self.version+=1
         safety_reply=self.read_safety_reply(entry)
         self_report = core_self_report(text) if self.core_only and (
             not self.needs_current_safety_check or self.stage=='collecting') else None
@@ -806,6 +843,9 @@ class Screening:
                 self.answers,self.target_scales,self.signals={},[],[]
                 self.episode_id,self.window_end=None,None
             self.stage, self.pending = 'urgent', None
+            self.question_key,self.question_context,self.question_followup=None,None,None
+            self.confirmation_asked=False
+            self.collection_feedback=None
             self.history_danger_unresolved=True
             self.current_safety_discussed=False
             self.target_scales=list(dict.fromkeys([*self.target_scales,'PHQ-9']))
@@ -829,6 +869,7 @@ class Screening:
                 pass
             elif (self.triggered and not self.needs_current_safety_check and self.stage in ('waiting_context','collecting')
                   and re.search(r'还有.{0,8}想问|有什么想问|还想问|你(可以|来|继续|多|再).{0,4}问|我愿意.{0,5}(回答|继续聊)',text)):
+                self.context_invitation_needed=False
                 self.user_invited_questions=True;self.start_collection();self.version+=1
             elif (self.review_mode=='live' and self.stage in ('waiting_context','companionship') and self.context_checkin_asked
                   and accepts_review_transition(text)):
@@ -903,6 +944,7 @@ class Screening:
                                score_kind='project_dialogue_indicator' if scale in SCALE_DIRECTIONS else 'conversation_assisted',
                                answered=sum(v is not None for v in values), required=len(values),
                                max_score=len(values)*(len(OPTIONS_BY_SCALE[scale])-1),
+                               partial_score=sum(v['value'] for v in values if v is not None) if any(v is not None for v in values) else None,
                                total=sum(v['value'] for v in values) if complete else None,
                                status='complete_unverified' if complete else 'incomplete', items=values))
         return dict(type='screening.status', stage=self.stage, version=self.version, review_status=self.review_status, review_mode=self.review_mode, scales=scales,
@@ -918,11 +960,16 @@ class Screening:
                     episode_id=self.episode_id,window_end=self.window_end,transport_diagnostics=self.transport_diagnostics)
 
     def public_status(self):
+        scales=self.view()['scales']
         value=dict(type='screening.status',stage=self.stage,version=self.version,
                     review_mode=self.review_mode,
                     triggered=self.triggered,detector_status=self.detector_status,
                     review_status=self.review_status,
-                    formal_assessment=False,collection_progress=dict(answered=sum(s['answered'] for s in self.view()['scales']),required=sum(s['required'] for s in self.view()['scales'])))
+                    formal_assessment=False,collection_progress=dict(answered=sum(s['answered'] for s in scales),required=sum(s['required'] for s in scales)),
+                    scores=[dict(scale=s['scale'],display_name=s['display_name'],answered=s['answered'],required=s['required'],
+                                 partial_score=s['partial_score'],total=s['total'],max_score=s['max_score'],
+                                 items=[dict(item=i+1,topic=ITEMS[s['scale']][i],points=answer['value'])
+                                        for i,answer in enumerate(s['items']) if answer is not None]) for s in scales])
         if self.demo_mode:
             scale=next((s for s in self.view()['scales'] if s['scale']=='mood_interest'),None)
             value.update(demo_mode=True,trigger_origin=self.trigger_origin,
@@ -936,11 +983,32 @@ class Screening:
                 '每次至多一个具体问题，先回应再提问，避免机械串题；用户请你主导时要主动提出与经历相关的问题，不只安慰或让用户自己找话题。'
                 '平台会保存采集任务和已确认条目并带入后续通话。不要编造“会话隔离所以没保存或看不到旧进度”的解释；只能如实说明当前提供的任务摘要，实际保存以平台显示为准。'
                 '不提供未经核实的热线号码，不从模型记忆编造联系方式。')+self.background+getattr(self,'care_background','')
+        base+=('用户分享开心、满足、放松、期待等积极状态时，回应具体经历，邀请自由分享，例如“愿意和我分享发生了什么吗？”'
+               '不把积极状态变成量表，不追问开心了几天或让用户评价积极程度，不为了完成任务打断分享；也不据此替用户填零分。'
+               '普通难过、低落或焦虑且没有危险表达时，仍按后台任务温和引导当前条目，不套用危机等待流程。')
+        if self.stage == 'urgent':
+            return base + ('此刻优先级高于所有量表、采集进度和自动追问：立即停止信息采集。'
+                '第一句先接住痛苦和表达陪伴，例如“听到你这么难受，我很在意你此刻的安全。谢谢你愿意告诉我，我在听。”'
+                '先倾听、认可感受，不说教、不责备、不要求想开点，不用空泛保证或让用户内疚。'
+                '不要马上问量表、过去两周或出现几天。必要的即时安全确认不是量表：先安抚，再简短直接了解是否正要伤害自己或已经采取行动，一次一个问题。'
+                '若有迫近危险或已受伤，不等待心情平静，及时鼓励联系当地急救并请身边可信任的人陪伴，远离可能用于伤害自己的物品；不编造电话号码。'
+                '继续陪伴并帮助连接现实支持，不以一次“好点了”、积极语气或暂时沉默推断安全。'
+                '只有后续安全情况得到明确了解、即时危险缓解且用户愿意继续，才考虑量表；后台仍为urgent时不得恢复采集或试探量表题。')
         if self.window_end:base+=f'本次回顾范围固定为截至{self.window_end}的前两周，跨会话保持同一回顾范围，不混用不同时段。'
         if self.normal_live and self.current_safety_discussed:
             base+='本次已直接了解过用户此刻是否仍有相关念头，请回应当前对话，不用重复询问过去的情况。后续有新的危险表达仍须优先安全关怀。'
         if not self.enabled:
             return base+'当前会话未启用后台信息采集，只自然陪伴；用户问及功能时如实说明当前未启用，不说系统永远不会主动了解。'
+        if self.context_invitation_needed and not self.needs_current_safety_check and self.stage in ('collecting','waiting_context'):
+            return base+('用户刚表达普通消极感受，先了解发生了什么，不立即引导量表。'
+                '先贴合原话表达关心，再温和邀请“愿意说说发生了什么，让你有点难过吗？”；焦虑时围绕让其担心的事来问。'
+                '这一轮只邀请分享原因或经历，不问最近两周、天数或任何量表题。'
+                '等用户分享后先回应具体经历，再在合适时自然衔接当前相关条目；仍想倾诉就继续听，不催促答题。')
+        base+=('识别到用户本人当前的消极情绪并收到后台采集任务时，要主动引导，不能只安慰后换话题或等待用户主动要求量表。'
+               '已先了解用户经历、回应具体原因后，衔接时可说“谢谢你告诉我。我们可以一起梳理最近两周的感受，帮助更好地了解你需要什么支持；不想回答时随时告诉我。”'
+               '随后自然问当前条目，一次一问，用支持性语言鼓励真实表达，不诱导乐观答案。'
+               '消极情绪只是进一步了解的线索，不代表抑郁或焦虑诊断，也不能直接给量表题目赋分。'
+               '用户拒绝、暂停或仍想倾诉时尊重其节奏；明确危险表达始终优先安全关怀。')
         if self.demo_mode:
             base+=('当前为隔离的快速采集演示，只演示3项自定义对话指标，不能称为PHQ-9/GAD-7或正式量表。'
                 '只有后台已安排采集任务并进入collecting阶段后才询问指定条目，未安排时不要一开场就问频率。每一段先明确最近两周的范围，后续承接同一范围，不必逐句机械重复，'
@@ -956,6 +1024,9 @@ class Screening:
             if self.streamlined and getattr(self,'last_repeated_topic',None):
                 base+='刚才重复询问了已保存的“'+self.last_repeated_topic+'”。请立即纠正后续话题，不能再问这一方向或把其回答当成其他条目。'
         if self.streamlined:base+='已明确时间范围和频率的回答由后台记录，不重复索要确认；只有含糊回答才温和澄清。只使用当前条目对应的频率选项，不混用不同量表的选项。'
+        if self.streamlined:base+=('理解口语回答，不要求逐字复述选项。比如“偶尔会”“基本天天”属于频率表达。'
+            '“有一点点”“有点”“还好”“挺严重”只说明程度，不能直接换算天数或分数；先接住感受，再自然问“你说有一点点，我听到了。那最近两周，大概有多少天会这样呢？”'
+            '“经常”“有时候”若无法确定天数范围，也温和问大概有几天；一次只澄清当前题，不连续朗读四个选项，不把用户推向某个答案。')
         if self.end_after_response:
             return base+'用户已明确表示暂时没有其他想聊的内容。简短温暖告别，不再提问，不总结分数或诊断。'
         base += ('用户问“什么情况下会主动了解、是否会发起问卷”时，说明：会结合前面的具体交流，'
@@ -986,8 +1057,6 @@ class Screening:
             return base+'当前先自然了解近况，可围绕用户提到的具体困扰温和问一个问题，留意持续时间和生活影响；后台未安排前不执行固定条目采集，不否认后续会主动了解。'
         if self.stage in ('paused','declined'):
             return base+'尊重暂停或停止信息采集，不继续相关追问。温和回应“我们可以先歇一歇，按你的节奏来”，不催促完成，也不评价完成多少。'
-        if self.stage == 'urgent':
-            return base + '立即停止信息采集，优先关怀与安全支持，温和了解当前是否有立即伤害自己的可能，鼓励及时获得身边可信任的人及专业支持，不保证安全、不编造热线号码。'
         if self.stage=='complete':
             if self.end_after_response:
                 return base+'用户已表示暂时没有其他想聊的内容。简短温暖告别，不再提问，也不总结分数或诊断。'

@@ -1,16 +1,14 @@
 """16-item depression/anxiety score; coverage is not statistical confidence.
 
 Full score: PHQ-9 + GAD-7 (PHQ-ADS reference, DOI
-10.1097/PSY.0000000000000322). Partial prorating and coverage bands are explicit
-project rules, not validated PHQ-ADS scoring or diagnostic probabilities.
+10.1097/PSY.0000000000000322). Incomplete answers expose only their observed subtotal; no prorating.
+Coverage describes completion, not diagnostic probability.
 """
-from fractions import Fraction
-from decimal import Decimal, ROUND_HALF_UP
 from ..robot_records import owned, summary, RecordMessage
 from ..voice.screening import ScreeningResult, CollectionTrace
 from .collection_history import collection_history
 
-VERSION = 'combined-16-v1'
+VERSION = 'combined-16-v2-no-prorating'
 SIZES = {'PHQ-9': 9, 'GAD-7': 7}
 REQUIRED = 16
 MAXIMUM = 48
@@ -26,16 +24,14 @@ def calculate(answers):
         if scale in SIZES and type(item) is int and 1 <= item <= SIZES[scale]
         and type(value) is int and 0 <= value <= 3]
     count, subtotal = len(points), sum(points)
-    score = Fraction(subtotal*REQUIRED, count) if count else None
-    display = float((Decimal(score.numerator)/Decimal(score.denominator)).quantize(
-        Decimal('0.1'), rounding=ROUND_HALF_UP)) if score is not None else None
+    score = subtotal if count == REQUIRED else None
     band = next((b for b in BANDS if score is not None and b[0] <= score < b[1]), None)
     coverage = count/REQUIRED*100
     level = 'high' if coverage >= 80 else 'medium' if coverage >= 50 else 'low'
-    return dict(version=VERSION, score=display, full_max=MAXIMUM, answered=count, required=REQUIRED,
+    return dict(version=VERSION, score=score, full_max=MAXIMUM, answered=count, required=REQUIRED,
         observed_score=subtotal, confidence=coverage, confidence_basis='answer_completion_rate',
         confidence_level=level, confidence_label={'high':'高','medium':'中','low':'低'}[level],
-        score_kind='complete' if count == REQUIRED else 'estimated' if count else 'unavailable',
+        score_kind='complete' if count == REQUIRED else 'incomplete' if count else 'unavailable',
         reference_band=band[2] if band else None, reference_label=band[3] if band else None,
         possible_total_min=subtotal, possible_total_max=subtotal+3*(REQUIRED-count),
         clinical_diagnosis=False, estimate_validated=False,
